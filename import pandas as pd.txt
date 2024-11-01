@@ -218,3 +218,138 @@ matched_df.to_excel(output_file_path, index=False)
 print(f"Matched names saved to '{output_file_path}'")
 print(f"Accuracy: {accuracy:.2f}%")
 
+
+===================================  code 4 ========================
+
+import pandas as pd
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+import re
+
+# Load data from Excel
+file_path = 'your_file.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing functions
+def normalize_name(name):
+    # Convert to lowercase, remove punctuations, extra spaces, etc.
+    name = str(name).lower().replace(".", "").replace("-", "").replace(",", "")
+    return name.strip()
+
+def phonetic_encoding(name):
+    # Using Double Metaphone for phonetic similarity
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+# Similarity functions
+def phonetic_similarity(name1, name2):
+    return fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+
+def missing_spaces_hyphens(name1, name2):
+    # Check if names match after removing spaces and hyphens
+    name1_no_spaces = re.sub(r'[\s-]', '', name1)
+    name2_no_spaces = re.sub(r'[\s-]', '', name2)
+    return 1.0 if name1_no_spaces == name2_no_spaces else 0.0
+
+def spelling_differences(name1, name2):
+    # Check for spelling variations (can add more rules here)
+    return fuzz.ratio(name1, name2) / 100.0
+
+def titles_honorifics(name1, name2):
+    titles = ['dr', 'mr', 'phd', 'ms', 'mrs']
+    name1_tokens = name1.split()
+    name2_tokens = name2.split()
+    for title in titles:
+        if title in name1_tokens and title not in name2_tokens:
+            name1_tokens.remove(title)
+        elif title in name2_tokens and title not in name1_tokens:
+            name2_tokens.remove(title)
+    return fuzz.ratio(' '.join(name1_tokens), ' '.join(name2_tokens)) / 100.0
+
+def missing_components(name1, name2):
+    # Check if one name is a subset of the other
+    return 1.0 if set(normalize_name(name1).split()).issubset(set(normalize_name(name2).split())) else 0.0
+
+def out_of_order_components(name1, name2):
+    # Check if names have the same components regardless of order
+    return 1.0 if sorted(name1.split()) == sorted(name2.split()) else 0.0
+
+def nicknames(name1, name2):
+    nickname_dict = {
+        "will": "william", 
+        "bill": "william", 
+        "billy": "william", 
+        "james": "jim", 
+        "jim": "james"
+        # Add more nicknames as needed
+    }
+    for nickname, full_name in nickname_dict.items():
+        if nickname in normalize_name(name1) or nickname in normalize_name(name2):
+            return 1.0 if full_name in normalize_name(name1) or full_name in normalize_name(name2) else 0.0
+    return 0.0
+
+def initials(name1, name2):
+    # Compare initials with full names
+    name1_initials = ''.join([part[0] for part in name1.split() if part.isupper()])
+    name2_initials = ''.join([part[0] for part in name2.split() if part.isupper()])
+    return 1.0 if name1_initials == name2_initials else 0.0
+
+def calculate_similarities(name1, name2):
+    # Normalize names
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+
+    # Calculate various similarity scores
+    phonetic_sim = phonetic_similarity(name1, name2)
+    missing_spaces_sim = missing_spaces_hyphens(name1, name2)
+    spelling_sim = spelling_differences(name1, name2)
+    titles_sim = titles_honorifics(name1, name2)
+    missing_components_sim = missing_components(name1, name2)
+    out_of_order_sim = out_of_order_components(name1, name2)
+    nicknames_sim = nicknames(name1, name2)
+    initials_sim = initials(name1, name2)
+
+    # Combine similarity scores with weights
+    weighted_score = (
+        0.2 * phonetic_sim +
+        0.2 * missing_spaces_sim +
+        0.2 * spelling_sim +
+        0.1 * titles_sim +
+        0.1 * missing_components_sim +
+        0.1 * out_of_order_sim +
+        0.1 * nicknames_sim +
+        0.1 * initials_sim
+    )
+    return weighted_score
+
+# Matching function
+def match_names_from_excel(data, threshold=0.6):
+    results = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = calculate_similarities(name1, name2)
+        label = 1 if score >= threshold else 0
+        results.append((name1, name2, score, label))
+    
+    # Convert results to a DataFrame
+    results_df = pd.DataFrame(results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])
+    return results_df
+
+# Run the matching and store the results
+matched_df = match_names_from_excel(data, threshold=0.6)
+
+# Add actual labels to the matched results for comparison
+matched_df['Actual Label'] = data['Label']
+
+# Calculate accuracy
+accuracy = (matched_df['Predicted Label'] == matched_df['Actual Label']).mean() * 100
+
+# Save results to a new Excel file
+output_file_path = 'matched_names_output.xlsx'  # Replace with your desired output file path
+matched_df.to_excel(output_file_path, index=False)
+
+print(f"Matched names saved to '{output_file_path}'")
+print(f"Accuracy: {accuracy:.2f}%")
+
