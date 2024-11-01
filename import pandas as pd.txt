@@ -1117,3 +1117,150 @@ matched_df.to_excel(output_file_path, index=False)
 
 print(f"Matched names saved to '{output_file_path}'")
 print(f"Accuracy: {accuracy:.2f}%")
+
+
+=================== code 12 ( wrong outputs ) ========================
+
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    # Convert to lowercase, remove punctuations, extra spaces, etc.
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    # Remove titles and honorifics from the name
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    # Using Double Metaphone for phonetic similarity
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def extract_initials(name):
+    """Extract initials from a name."""
+    parts = name.split()
+    return [part[0] for part in parts]
+
+def initials_match(name1, name2):
+    """Check for initials match, regardless of order."""
+    initials1 = set(extract_initials(name1))
+    initials2 = set(extract_initials(name2))
+    return initials1 == initials2
+
+def approximate_nickname_match(name1, name2):
+    # Short names match with longer names if they start similarly or are phonetic matches
+    if len(name1) < len(name2):
+        shorter, longer = name1, name2
+    else:
+        shorter, longer = name2, name1
+
+    start_match = fuzz.partial_ratio(shorter, longer) >= 80
+    phonetic_match = phonetic_encoding(shorter) == phonetic_encoding(longer[:len(shorter)])
+    return start_match or phonetic_match
+
+def has_common_components(name1, name2):
+    # Check if shorter name is a subset of the longer one
+    components1 = set(name1.split())
+    components2 = set(name2.split())
+    return components1.issubset(components2) or components2.issubset(components1)
+
+# Similarity functions
+def calculate_similarities(name1, name2):
+    # Normalize names
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+
+    # Remove titles from names
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    # Check for initials match
+    if initials_match(name1_no_titles, name2_no_titles):
+        return 1.0  # Full match if initials match
+
+    # Check for approximate nickname match
+    if approximate_nickname_match(name1_no_titles, name2_no_titles):
+        return 1.0  # Full match if approximate nickname match is found
+
+    # Check for missing components
+    if has_common_components(name1_no_titles, name2_no_titles):
+        return 0.9  # High score if one name contains all components of the other
+
+    # Check for out-of-order components
+    if sorted(name1_no_titles.split()) == sorted(name2_no_titles.split()):
+        return 0.9  # High score if names have the same components in different order
+
+    # Phonetic similarity
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    
+    # Edit distance similarity (Levenshtein)
+    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    
+    # Jaro-Winkler similarity
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+
+    # Cosine similarity on character n-grams
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1_no_titles, name2_no_titles])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+    
+    # Weighted similarity score
+    weighted_score = 0.3 * phonetic_sim + 0.3 * levenshtein_sim + 0.2 * jaro_winkler_sim + 0.2 * cosine_sim
+    return weighted_score
+
+# Matching function
+def match_names_from_excel(data, threshold=0.6):
+    results = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = calculate_similarities(name1, name2)
+        label = 1 if score >= threshold else 0
+        results.append((name1, name2, score, label))
+    
+    # Convert results to a DataFrame
+    results_df = pd.DataFrame(results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])
+    return results_df
+
+# Run the matching and store the results
+matched_df = match_names_from_excel(data, threshold=0.6)
+
+# Add actual labels to the matched results for comparison
+matched_df['Actual Label'] = data['Label']
+
+# Calculate accuracy
+accuracy = (matched_df['Predicted Label'] == matched_df['Actual Label']).mean() * 100
+
+# Identify mismatches
+mismatches = matched_df[matched_df['Predicted Label'] != matched_df['Actual Label']]
+
+# Print mismatched rows
+if not mismatches.empty:
+    print("Mismatches between Actual and Predicted Labels:")
+    print(mismatches)
+else:
+    print("All predictions match the actual labels.")
+
+# Save mismatches to a separate Excel file
+mismatches_file_path = 'mismatched_names_output.xlsx'  # Replace with your desired output file path
+mismatches.to_excel(mismatches_file_path, index=False)
+
+# Save results to a new Excel file
+output_file_path = 'matched_names_output.xlsx'  # Replace with your desired output file path
+matched_df.to_excel(output_file_path, index=False)
+
+print(f"Matched names saved to '{output_file_path}'")
+print(f"Mismatched names saved to '{mismatches_file_path}'")
+print(f"Accuracy: {accuracy:.2f}%")
+
