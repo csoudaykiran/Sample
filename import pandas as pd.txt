@@ -1517,3 +1517,178 @@ test_accuracy = accuracy_score(y_test, y_test_pred)
 print(f"Training Accuracy: {train_accuracy:.2f}")
 print(f"Validation Accuracy: {val_accuracy:.2f}")
 print(f"Testing Accuracy: {test_accuracy:.2f}")
+
+
+
+=========================  XGBoost =========================================
+
+import pandas as pd
+from xgboost import XGBClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+# Feature extraction function
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    features = {
+        'phonetic_sim': fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0,
+        'levenshtein_sim': fuzz.ratio(name1, name2) / 100.0,
+        'jaro_winkler_sim': fuzz.token_sort_ratio(name1, name2) / 100.0,
+        'cosine_sim': cosine_similarity(
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[0:1],
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[1:2])[0][0]
+    }
+    return list(features.values())
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(generate_features(name1, name2))
+    y.append(label)
+
+# Split data into training (80%) and remaining (20%) sets
+X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Split the remaining data into validation (10%) and testing (10%) sets
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+# Print dataset sizes
+print(f"Training set size: {len(X_train)}")
+print(f"Validation set size: {len(X_val)}")
+print(f"Testing set size: {len(X_test)}")
+
+# Train XGBoost classifier on the training dataset
+clf = XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=42)
+clf.fit(X_train, y_train)
+
+# Evaluate on validation and testing sets
+y_val_pred = clf.predict(X_val)
+y_test_pred = clf.predict(X_test)
+
+# Calculate and print accuracies
+train_accuracy = accuracy_score(y_train, clf.predict(X_train))
+val_accuracy = accuracy_score(y_val, y_val_pred)
+test_accuracy = accuracy_score(y_test, y_test_pred)
+
+print(f"Training Accuracy: {train_accuracy:.2f}")
+print(f"Validation Accuracy: {val_accuracy:.2f}")
+print(f"Testing Accuracy: {test_accuracy:.2f}")
+
+
+=======================================  Autoencoder ===============================
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+# Feature extraction function
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    features = {
+        'phonetic_sim': fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0,
+        'levenshtein_sim': fuzz.ratio(name1, name2) / 100.0,
+        'jaro_winkler_sim': fuzz.token_sort_ratio(name1, name2) / 100.0,
+        'cosine_sim': cosine_similarity(
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[0:1],
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[1:2])[0][0]
+    }
+    return list(features.values())
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(generate_features(name1, name2))
+    y.append(label)
+X = np.array(X)
+y = np.array(y)
+
+# Split data into training (80%) and remaining (20%) sets
+X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Split the remaining data into validation (10%) and testing (10%) sets
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+# Define the autoencoder model
+input_dim = X_train.shape[1]  # Number of features
+encoding_dim = 4  # Dimension of the encoding space
+
+input_layer = Input(shape=(input_dim,))
+encoder = Dense(encoding_dim, activation="relu")(input_layer)
+decoder = Dense(input_dim, activation="sigmoid")(encoder)
+autoencoder = Model(inputs=input_layer, outputs=decoder)
+
+# Compile the autoencoder
+autoencoder.compile(optimizer=Adam(), loss="mse")
+early_stopping = EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True)
+
+# Train the autoencoder
+autoencoder.fit(X_train, X_train, epochs=50, batch_size=16, shuffle=True,
+                validation_data=(X_val, X_val), callbacks=[early_stopping])
+
+# Extract encoder model to generate encoded features
+encoder_model = Model(inputs=input_layer, outputs=encoder)
+
+# Encode the original feature sets
+X_train_encoded = encoder_model.predict(X_train)
+X_val_encoded = encoder_model.predict(X_val)
+X_test_encoded = encoder_model.predict(X_test)
+
+# Train a classifier on the encoded features
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train_encoded, y_train)
+
+# Evaluate on validation and testing sets
+y_val_pred = clf.predict(X_val_encoded)
+y_test_pred = clf.predict(X_test_encoded)
+
+# Calculate and print accuracies
+train_accuracy = accuracy_score(y_train, clf.predict(X_train_encoded))
+val_accuracy = accuracy_score(y_val, y_val_pred)
+test_accuracy = accuracy_score(y_test, y_test_pred)
+
+print(f"Training Accuracy: {train_accuracy:.2f}")
+print(f"Validation Accuracy: {val_accuracy:.2f}")
+print(f"Testing Accuracy: {test_accuracy:.2f}")
+
