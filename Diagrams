@@ -1,0 +1,167 @@
++-----------------------------+
+|   Phonetic Encoding         |
++-----------------------------+
+| Input: "michael stewart"    |
+|                              |
+| Processing:                  |
+| - Apply Double Metaphone on  |
+|   "michael" to get "MXL"     |
+|   ("M" for 'M', "X" for 'ch' |
+|   sound, "L" for 'l' ending) |
+| - Apply Double Metaphone on  |
+|   "stewart" to get "STRT"    |
+|                              |
+| Output: "MXL STRT"           |
++-----------------------------+
+
++-----------------------------+
+|    Extract Initials         |
++-----------------------------+
+| Input: "Michael Stewart"     |
+|                              |
+| Processing:                 |
+| - Split name into parts:    |
+|   ['Michael', 'Stewart']    |
+| - Get initials:             |
+|   ['M', 'S']                |
+|                              |
+| Output: ['M', 'S']          |
++-----------------------------+
+
++-----------------------------+
+|    Initials Match           |
++-----------------------------+
+| Input: "Michael Stewart",    |
+|        "Mark Smith"         |
+|                              |
+| Processing:                 |
+| - Extract initials:         |
+|   initials1 = {'M', 'S'}    |
+|   initials2 = {'M', 'S'}    |
+| - Check if initials are     |
+|   equal: True               |
+|                              |
+| Output: True                |
++-----------------------------+
+
++-----------------------------+
+| Approximate Nickname Match  |
++-----------------------------+
+| Input: "Mike", "Michael"    |
+|                              |
+| Processing:                 |
+| - Identify shorter and      |
+|   longer names:             |
+|   shorter = "Mike",         |
+|   longer = "Michael"        |
+| - Check start match (75%):  |
+|   True                       |
+| - Phonetic match:           |
+|   "M" vs "M"                |
+|                              |
+| Output: True                |
++-----------------------------+
+
++-----------------------------+
+|   Common Components Check    |
++-----------------------------+
+| Input: "Michael Stewart",    |
+|        "Michael"            |
+|                              |
+| Processing:                 |
+| - Split names into sets:    |
+|   components1 = {'Michael',  |
+|   'Stewart'}                |
+|   components2 = {'Michael'}  |
+| - Check for subset:         |
+|   True                       |
+|                              |
+| Output: True                |
++-----------------------------+
+
++-----------------------------+
+|   Calculate Similarities    |
++-----------------------------+
+| Input: "Michael Stewart",    |
+|        "M. Stewart"         |
+|                              |
+| Processing:                 |
+| - Normalize and remove titles:|
+|   "michael stewart"         |
+|   "m stewart"               |
+| - Check various matching     |
+|   criteria and similarities:  |
+|   - Initials match: False    |
+|   - Approximate nickname: False|
+|   - Common components: True    |
+|   - Phonetic similarity: 0.5  |
+|   - Levenshtein: 0.8         |
+|   - Jaro-Winkler: 0.9        |
+|   - Cosine similarity: 0.7    |
+|   - Jaccard: 0.4             |
+| - Calculate weighted score:   |
+|   weighted_score = 0.3 * 0.5 +|
+|   0.3 * 0.8 + 0.39 * 0.9 +   |
+|   0.4 * 0.7 + 0.1 * 0.4      |
+|                              |
+| Output: weighted_score       |
++-----------------------------+
+
++-----------------------------+
+|     Jaccard Similarity      |
++-----------------------------+
+| Input: "Michael Stewart",    |
+|        "Mike Stewart"       |
+|                              |
+| Processing:                 |
+| - Split names into sets:    |
+|   set1 = {'Michael', 'Stewart'}|
+|   set2 = {'Mike', 'Stewart'} |
+| - Calculate intersection:    |
+|   intersection = 1          |
+| - Calculate union:          |
+|   union = 2                 |
+| - Jaccard similarity:       |
+|   = 1 / 2                   |
+|                              |
+| Output: 0.5                 |
++-----------------------------+
+
++-----------------------------+
+|   Match Names from Excel    |
++-----------------------------+
+| Input: DataFrame `data`    |
+|                              |
+| Processing:                 |
+| - Iterate through each row: |
+|   for each (Name1, Name2):  |
+|   - Calculate similarity:    |
+|   - Assign label based on    |
+|     threshold: 0.6          |
+|   - Append results to list.  |
+|                              |
+| Output: DataFrame `results_df` |
+|   with name pairs and scores. |
++-----------------------------+
+
+
++-----------------------------+
+|   Calculate Metrics         |
++-----------------------------+
+| Input: DataFrame `matched_df`|
+|                              |
+| Processing:                 |
+| - Calculate accuracy:       |
+|   True Positives / Total * 100 |
+| - Calculate precision:      |
+|   TP / (TP + FP)            |
+| - Calculate recall:         |
+|   TP / (TP + FN)            |
+|                              |
+| Output: accuracy, precision, |
+|   recall values.            |
++-----------------------------+
+
+
+
+
