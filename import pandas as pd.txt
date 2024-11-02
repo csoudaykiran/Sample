@@ -1692,3 +1692,293 @@ print(f"Training Accuracy: {train_accuracy:.2f}")
 print(f"Validation Accuracy: {val_accuracy:.2f}")
 print(f"Testing Accuracy: {test_accuracy:.2f}")
 
+============================================  ( threshold, Recall, Precision ) ========================================
+
+import pandas as pd
+from sklearn.metrics import precision_score, recall_score, accuracy_score
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+import time  # Import time module to measure execution time
+
+# Start timing
+start_time = time.time()
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def extract_initials(name):
+    parts = name.split()
+    return [part[0] for part in parts]
+
+def initials_match(name1, name2):
+    initials1 = set(extract_initials(name1))
+    initials2 = set(extract_initials(name2))
+    return initials1 == initials2
+
+def approximate_nickname_match(name1, name2):
+    if len(name1) < len(name2):
+        shorter, longer = name1, name2
+    else:
+        shorter, longer = name2, name1
+
+    start_match = fuzz.partial_ratio(shorter, longer) >= 75
+    phonetic_match = phonetic_encoding(shorter) == phonetic_encoding(longer[:len(shorter)])
+    return start_match or phonetic_match
+
+def has_common_components(name1, name2):
+    components1 = set(name1.split())
+    components2 = set(name2.split())
+    return components1.issubset(components2) or components2.issubset(components1)
+
+# Similarity functions with weight adjustments
+def calculate_similarities(name1, name2, weights=(0.3, 0.3, 0.4, 0.3)):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    if initials_match(name1_no_titles, name2_no_titles):
+        return 1.0
+
+    if approximate_nickname_match(name1_no_titles, name2_no_titles):
+        return 1.0
+
+    if has_common_components(name1_no_titles, name2_no_titles):
+        return 0.9
+
+    if sorted(name1_no_titles.split()) == sorted(name2_no_titles.split()):
+        return 0.9
+
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1_no_titles, name2_no_titles])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    weighted_score = (
+        weights[0] * phonetic_sim + 
+        weights[1] * levenshtein_sim + 
+        weights[2] * jaro_winkler_sim + 
+        weights[3] * cosine_sim
+    )
+    return weighted_score
+
+# Matching function with threshold experiments
+def match_names_from_excel(data, thresholds=[0.6], weights=(0.3, 0.3, 0.4, 0.3)):
+    results = []
+    for threshold in thresholds:
+        temp_results = []
+        for _, row in data.iterrows():
+            name1, name2 = row['Name1'], row['Name2']
+            score = calculate_similarities(name1, name2, weights)
+            label = 1 if score >= threshold else 0
+            temp_results.append((name1, name2, score, label))
+        results.append((threshold, pd.DataFrame(temp_results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])))
+    return results
+
+# Run matching with multiple thresholds and save best
+thresholds = [0.5, 0.6, 0.7, 0.8]  # Define thresholds to test
+weights = (0.3, 0.3, 0.4, 0.3)  # Adjust similarity measure weights as needed
+
+# Run and store results
+matched_dfs = match_names_from_excel(data, thresholds=thresholds, weights=weights)
+
+# Evaluate results at each threshold
+best_df = None
+best_metrics = {'threshold': 0, 'accuracy': 0, 'precision': 0, 'recall': 0}
+
+for threshold, matched_df in matched_dfs:
+    # Add actual labels to matched results for comparison
+    matched_df['Actual Label'] = data['Label']
+
+    # Calculate metrics
+    accuracy = accuracy_score(matched_df['Actual Label'], matched_df['Predicted Label']) * 100
+    precision = precision_score(matched_df['Actual Label'], matched_df['Predicted Label'])
+    recall = recall_score(matched_df['Actual Label'], matched_df['Predicted Label'])
+
+    # Store best metrics
+    if recall == 1.0 and precision > best_metrics['precision']:  # Ensure recall meets zero-risk requirement
+        best_metrics.update({'threshold': threshold, 'accuracy': accuracy, 'precision': precision, 'recall': recall})
+        best_df = matched_df.copy()
+
+# Print the best settings and metrics
+print(f"Best Threshold: {best_metrics['threshold']}")
+print(f"Accuracy: {best_metrics['accuracy']:.2f}%")
+print(f"Precision: {best_metrics['precision']:.2f}")
+print(f"Recall: {best_metrics['recall']:.2f}")
+
+# Save best results to a new Excel file
+output_file_path = 'best_matched_names_output.xlsx'  # Replace with your desired output file path
+best_df.to_excel(output_file_path, index=False)
+
+# Calculate and print execution time
+end_time = time.time()
+execution_time = end_time - start_time
+print(f"Execution time: {execution_time:.2f} seconds")
+
+
+==========================================================  ( threshold = 0.6 fixed ) ==========================================
+
+import pandas as pd
+from sklearn.metrics import precision_score, recall_score, accuracy_score
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+import time  # Import time module to measure execution time
+
+# Start timing
+start_time = time.time()
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def extract_initials(name):
+    parts = name.split()
+    return [part[0] for part in parts]
+
+def initials_match(name1, name2):
+    initials1 = set(extract_initials(name1))
+    initials2 = set(extract_initials(name2))
+    return initials1 == initials2
+
+def approximate_nickname_match(name1, name2):
+    if len(name1) < len(name2):
+        shorter, longer = name1, name2
+    else:
+        shorter, longer = name2, name1
+
+    start_match = fuzz.partial_ratio(shorter, longer) >= 75
+    phonetic_match = phonetic_encoding(shorter) == phonetic_encoding(longer[:len(shorter)])
+    return start_match or phonetic_match
+
+def has_common_components(name1, name2):
+    components1 = set(name1.split())
+    components2 = set(name2.split())
+    return components1.issubset(components2) or components2.issubset(components1)
+
+# Similarity functions with weight adjustments
+def calculate_similarities(name1, name2, weights=(0.3, 0.3, 0.4, 0.3)):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    if initials_match(name1_no_titles, name2_no_titles):
+        return 1.0
+
+    if approximate_nickname_match(name1_no_titles, name2_no_titles):
+        return 1.0
+
+    if has_common_components(name1_no_titles, name2_no_titles):
+        return 0.9
+
+    if sorted(name1_no_titles.split()) == sorted(name2_no_titles.split()):
+        return 0.9
+
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1_no_titles, name2_no_titles])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    weighted_score = (
+        weights[0] * phonetic_sim + 
+        weights[1] * levenshtein_sim + 
+        weights[2] * jaro_winkler_sim + 
+        weights[3] * cosine_sim
+    )
+    return weighted_score
+
+# Matching function with fixed threshold and varied weights
+def match_names_from_excel(data, threshold=0.6, weight_combinations=[(0.3, 0.3, 0.3, 0.1), (0.4, 0.2, 0.3, 0.1), (0.3, 0.4, 0.2, 0.1), (0.2, 0.2, 0.5, 0.1)]):
+    results = []
+    for weights in weight_combinations:
+        temp_results = []
+        for _, row in data.iterrows():
+            name1, name2 = row['Name1'], row['Name2']
+            score = calculate_similarities(name1, name2, weights)
+            label = 1 if score >= threshold else 0
+            temp_results.append((name1, name2, score, label))
+        results.append((weights, pd.DataFrame(temp_results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])))
+    return results
+
+# Run matching with multiple weight combinations and save best
+weight_combinations = [
+    (0.3, 0.3, 0.3, 0.1), 
+    (0.4, 0.2, 0.3, 0.1), 
+    (0.3, 0.4, 0.2, 0.1), 
+    (0.2, 0.2, 0.5, 0.1)  # Define more combinations as needed
+]
+
+# Run and store results
+matched_dfs = match_names_from_excel(data, threshold=0.6, weight_combinations=weight_combinations)
+
+# Evaluate results with precision, recall, and accuracy
+best_df = None
+best_metrics = {'weights': None, 'accuracy': 0, 'precision': 0, 'recall': 0}
+
+for weights, matched_df in matched_dfs:
+    # Add actual labels to matched results for comparison
+    matched_df['Actual Label'] = data['Label']
+
+    # Calculate metrics
+    accuracy = accuracy_score(matched_df['Actual Label'], matched_df['Predicted Label']) * 100
+    precision = precision_score(matched_df['Actual Label'], matched_df['Predicted Label'])
+    recall = recall_score(matched_df['Actual Label'], matched_df['Predicted Label'])
+
+    # Store best metrics
+    if recall == 1.0 and precision > best_metrics['precision']:  # Ensure recall meets zero-risk requirement
+        best_metrics.update({'weights': weights, 'accuracy': accuracy, 'precision': precision, 'recall': recall})
+        best_df = matched_df.copy()
+
+# Print the best settings and metrics
+print(f"Best Weights: {best_metrics['weights']}")
+print(f"Accuracy: {best_metrics['accuracy']:.2f}%")
+print(f"Precision: {best_metrics['precision']:.2f}")
+print(f"Recall: {best_metrics['recall']:.2f}")
+
+# Save best results to a new Excel file
+output_file_path = 'best_matched_names_output.xlsx'  # Replace with your desired output file path
+best_df.to_excel(output_file_path, index=False)
+
+# Calculate and print execution time
+end_time = time.time()
+execution_time = end_time - start_time
+print(f"Execution time: {execution_time:.2f} seconds")
