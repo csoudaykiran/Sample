@@ -1119,7 +1119,7 @@ print(f"Matched names saved to '{output_file_path}'")
 print(f"Accuracy: {accuracy:.2f}%")
 
 
-=================== code 12 ( wrong outputs ) ========================
+=================== code 12 ( storeing wrong outputs in excel ( 96% )) ========================
 
 import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
@@ -1167,7 +1167,7 @@ def approximate_nickname_match(name1, name2):
     else:
         shorter, longer = name2, name1
 
-    start_match = fuzz.partial_ratio(shorter, longer) >= 80
+    start_match = fuzz.partial_ratio(shorter, longer) >= 75
     phonetic_match = phonetic_encoding(shorter) == phonetic_encoding(longer[:len(shorter)])
     return start_match or phonetic_match
 
@@ -1217,7 +1217,7 @@ def calculate_similarities(name1, name2):
     cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
     
     # Weighted similarity score
-    weighted_score = 0.3 * phonetic_sim + 0.3 * levenshtein_sim + 0.2 * jaro_winkler_sim + 0.2 * cosine_sim
+    weighted_score = 0.3 * phonetic_sim + 0.3 * levenshtein_sim + 0.39 * jaro_winkler_sim + 0.4 * cosine_sim
     return weighted_score
 
 # Matching function
@@ -1692,7 +1692,7 @@ print(f"Training Accuracy: {train_accuracy:.2f}")
 print(f"Validation Accuracy: {val_accuracy:.2f}")
 print(f"Testing Accuracy: {test_accuracy:.2f}")
 
-============================================  ( threshold, Recall, Precision ) ========================================
+============================================  ( threshold, Recall, Precision ) (Not working ) ========================================
 
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score, accuracy_score
@@ -1836,7 +1836,7 @@ execution_time = end_time - start_time
 print(f"Execution time: {execution_time:.2f} seconds")
 
 
-==========================================================  ( threshold = 0.6 fixed ) ==========================================
+==========================================================  ( threshold = 0.6 fixed ) ( Not working ) ==========================================
 
 import pandas as pd
 from sklearn.metrics import precision_score, recall_score, accuracy_score
@@ -1982,3 +1982,88 @@ best_df.to_excel(output_file_path, index=False)
 end_time = time.time()
 execution_time = end_time - start_time
 print(f"Execution time: {execution_time:.2f} seconds")
+
+
+
+================================================= ml (recall , precision ) =====================================
+
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.model_selection import train_test_split
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+# Feature extraction function
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    features = {
+        'phonetic_sim': fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0,
+        'levenshtein_sim': fuzz.ratio(name1, name2) / 100.0,
+        'jaro_winkler_sim': fuzz.token_sort_ratio(name1, name2) / 100.0,
+        'cosine_sim': cosine_similarity(
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[0:1],
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[1:2])[0][0]
+    }
+    return list(features.values())
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(generate_features(name1, name2))
+    y.append(label)
+
+# Split data into training (80%) and remaining (20%) sets
+X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Split the remaining data into validation (10%) and testing (10%) sets
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+# Print dataset sizes
+print(f"Training set size: {len(X_train)}")
+print(f"Validation set size: {len(X_val)}")
+print(f"Testing set size: {len(X_test)}")
+
+# Train classifier on the training dataset
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train, y_train)
+
+# Evaluate on training set
+y_train_pred = clf.predict(X_train)
+train_accuracy = accuracy_score(y_train, y_train_pred)
+train_precision = precision_score(y_train, y_train_pred)
+train_recall = recall_score(y_train, y_train_pred)
+
+# Evaluate on validation set
+y_val_pred = clf.predict(X_val)
+val_accuracy = accuracy_score(y_val, y_val_pred)
+val_precision = precision_score(y_val, y_val_pred)
+val_recall = recall_score(y_val, y_val_pred)
+
+# Evaluate on testing set
+y_test_pred = clf.predict(X_test)
+test_accuracy = accuracy_score(y_test, y_test_pred)
+test_precision = precision_score(y_test, y_test_pred)
+test_recall = recall_score(y_test, y_test_pred)
+
+# Print metrics for each set
+print(f"Training Accuracy: {train_accuracy:.2f}, Precision: {train_precision:.2f}, Recall: {train_recall:.2f}")
+print(f"Validation Accuracy: {val_accuracy:.2f}, Precision: {val_precision:.2f}, Recall: {val_recall:.2f}")
+print(f"Testing Accuracy: {test_accuracy:.2f}, Precision: {test_precision:.2f}, Recall: {test_recall:.2f}")
+
