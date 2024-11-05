@@ -1,0 +1,184 @@
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import precision_score, recall_score
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def soundex_encoding(name):
+    return soundex(name)
+
+def extract_initials(name):
+    parts = name.split()
+    return [part[0] for part in parts]
+
+def initials_match(name1, name2):
+    initials1 = set(extract_initials(name1))
+    initials2 = set(extract_initials(name2))
+    return initials1 == initials2
+
+def approximate_nickname_match(name1, name2):
+    if len(name1) < len(name2):
+        shorter, longer = name1, name2
+    else:
+        shorter, longer = name2, name1
+
+    start_match = fuzz.partial_ratio(shorter, longer) >= 75
+    phonetic_match = phonetic_encoding(shorter) == phonetic_encoding(longer[:len(shorter)])
+    return start_match or phonetic_match
+
+def has_common_components(name1, name2):
+    components1 = set(name1.split())
+    components2 = set(name2.split())
+    return components1.issubset(components2) or components2.issubset(components1)
+
+# Similarity functions
+def calculate_similarities(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    # Early return for strong matches
+    if initials_match(name1_no_titles, name2_no_titles):
+        return 1.0
+    if approximate_nickname_match(name1_no_titles, name2_no_titles):
+        return 1.0
+    if has_common_components(name1_no_titles, name2_no_titles):
+        return 0.9
+    if sorted(name1_no_titles.split()) == sorted(name2_no_titles.split()):
+        return 0.9
+
+    # Calculate various similarity scores
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+    soundex_sim = 1.0 if soundex_encoding(name1_no_titles) == soundex_encoding(name2_no_titles) else 0.0
+
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1_no_titles, name2_no_titles])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    def jaccard_similarity(name1, name2):
+        set1, set2 = set(name1.split()), set(name2.split())
+        return len(set1.intersection(set2)) / len(set1.union(set2))
+
+    jaccard_sim = jaccard_similarity(name1_no_titles, name2_no_titles)
+
+    # Weighted score calculation with Soundex similarity included
+    weighted_score = (0.25 * phonetic_sim +
+                      0.25 * levenshtein_sim +
+                      0.20 * jaro_winkler_sim +
+                      0.15 * cosine_sim +
+                      0.10 * jaccard_sim +
+                      0.05 * soundex_sim)
+
+    return weighted_score
+
+# Initial matching function
+def match_names_from_excel(data, threshold=0.6):
+    results = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = calculate_similarities(name1, name2)
+        label = 1 if score >= threshold else 0
+        results.append((name1, name2, score, label))
+    
+    results_df = pd.DataFrame(results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])
+    return results_df
+
+# Initial matching
+matched_df = match_names_from_excel(data, threshold=0.6)
+matched_df['Actual Label'] = data['Label']
+
+# Prepare training data for machine learning model
+def prepare_training_data(df):
+    X, y = [], []
+    for _, row in df.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = calculate_similarities(name1, name2)
+        X.append([score])
+        y.append(row['Actual Label'])
+    return np.array(X), np.array(y)
+
+X_train, y_train = prepare_training_data(matched_df)
+
+# Iterative retraining process
+max_iterations = 10  # Set a reasonable max limit to avoid endless loop
+iteration = 0
+target_recall = 1.0  # Aim for 100% recall
+
+while iteration < max_iterations:
+    # Split the data
+    X_train_split, X_test_split, y_train_split, y_test_split = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+
+    # Train the model
+    model = RandomForestClassifier(random_state=42)
+    model.fit(X_train_split, y_train_split)
+
+    # Evaluate the retrained model
+    y_pred = model.predict(X_test_split)
+    new_accuracy = (y_pred == y_test_split).mean() * 100
+    new_precision = precision_score(y_test_split, y_pred)
+    new_recall = recall_score(y_test_split, y_pred)
+
+    print(f"Iteration {iteration + 1}:")
+    print(f"New Accuracy: {new_accuracy:.2f}%")
+    print(f"New Precision: {new_precision:.2f}")
+    print(f"New Recall: {new_recall:.2f}")
+
+    # Stop if 100% recall is achieved
+    if new_recall >= target_recall:
+        print("Model achieved 100% recall.")
+        break
+
+    # Identify remaining mismatches
+    retrained_results = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = calculate_similarities(name1, name2)
+        label = model.predict([[score]])[0]
+        retrained_results.append((name1, name2, score, label))
+
+    retrained_df = pd.DataFrame(retrained_results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])
+    retrained_df['Actual Label'] = data['Label']
+
+    # Identify mismatches and add to the training set
+    mismatches = retrained_df[retrained_df['Predicted Label'] != retrained_df['Actual Label']]
+    if mismatches.empty:
+        print("No mismatches found; model achieved 100% recall on the full data.")
+        break
+
+    print(f"Mismatches found: {len(mismatches)}. Adding to training set for next iteration.")
+    
+    # Add mismatches to training data
+    X_mismatch, y_mismatch = prepare_training_data(mismatches)
+    X_train = np.vstack([X_train, X_mismatch])
+    y_train = np.hstack([y_train, y_mismatch])
+
+    iteration += 1
+
+if iteration == max_iterations:
+    print("Max iterations reached. Consider refining your model further if needed.")
