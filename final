@@ -151,3 +151,17 @@ print("Model Performance:")
 print(f"Accuracy: {accuracy:.2f}%")
 print(f"Precision: {precision:.2f}")
 print(f"Recall: {recall:.2f}")
+
+
+# Get misclassified indices from the confusion matrix
+misclassified_indices = np.where((y_test == 1) & (y_pred == 0))[0]  # Label 1 (matches) predicted as 0 (non-matches)
+
+# Print the corresponding rows from the testing data (X_test)
+for index in misclassified_indices:
+    print(X_test[index])  # Print the feature vector (similarity score)
+    print(data.iloc[[index]])  # Print the corresponding rows from the original data
+
+# Example output (assuming similarity scores are the only features)
+# [[0.78]]  # Feature vector for a misclassified pair
+#        Name1   Name2  Label
+# 0  John Doe  John D.  ....   1  # Original data for the misclassified pair
