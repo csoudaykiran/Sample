@@ -134,3 +134,51 @@ print(f"Mismatched names saved to '{mismatches_file_path}'")
 print(f"Accuracy: {accuracy:.2f}%")
 print(f"Precision: {precision:.2f}")
 print(f"Recall: {recall:.2f}")
+
+==============
+# Similarity functions with expanded functionalities
+def calculate_similarities(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    # Exact match checks with more tolerance
+    if initials_match(name1_no_titles, name2_no_titles):
+        return 1.0
+    if approximate_nickname_match(name1_no_titles, name2_no_titles):
+        return 1.0
+    if has_common_components(name1_no_titles, name2_no_titles):
+        return 0.9
+    if sorted(name1_no_titles.split()) == sorted(name2_no_titles.split()):
+        return 0.9
+
+    # Additional substring matching
+    if len(name1_no_titles) > 3 and len(name2_no_titles) > 3:
+        overlap_ratio = fuzz.partial_ratio(name1_no_titles, name2_no_titles) / 100.0
+        if overlap_ratio >= 0.75:
+            return 0.85  # Score for significant substring overlap
+
+    # Calculate individual similarity scores with adjusted weights
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+
+    # Cosine similarity on character n-grams
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1_no_titles, name2_no_titles])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    # Jaccard similarity with enhanced token matching
+    jaccard_sim = jaccard_similarity(name1_no_titles, name2_no_titles)
+
+    # Adjusted weighted score to improve recall
+    weighted_score = (
+        0.25 * phonetic_sim +         # Phonetic similarity
+        0.25 * levenshtein_sim +      # Levenshtein similarity
+        0.4 * jaro_winkler_sim +      # Jaro-Winkler similarity
+        0.35 * cosine_sim +           # Increased cosine similarity
+        0.25 * jaccard_sim            # Increased Jaccard similarity
+    )
+
+    return weighted_score
+
