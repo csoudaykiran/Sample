@@ -182,3 +182,15 @@ def calculate_similarities(name1, name2):
 
     return weighted_score
 
+========== phoenotic changes=============
+def phonetic_matching(name1, name2):
+    primary = phonetic_encoding(name1)
+    secondary = phonetic_encoding(name2)
+    
+    # Check with Soundex or other phonetic algorithms
+    soundex1 = fuzz.soundex(name1)
+    soundex2 = fuzz.soundex(name2)
+    
+    return (primary == secondary) or (soundex1 == soundex2)
+
+
