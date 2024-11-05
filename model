@@ -1,0 +1,133 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def soundex_encoding(name):
+    return soundex(name)
+
+def extract_initials(name):
+    parts = name.split()
+    return [part[0] for part in parts]
+
+def initials_match(name1, name2):
+    initials1 = set(extract_initials(name1))
+    initials2 = set(extract_initials(name2))
+    return initials1 == initials2
+
+def approximate_nickname_match(name1, name2):
+    if len(name1) < len(name2):
+        shorter, longer = name1, name2
+    else:
+        shorter, longer = name2, name1
+    start_match = fuzz.partial_ratio(shorter, longer) >= 75
+    phonetic_match = phonetic_encoding(shorter) == phonetic_encoding(longer[:len(shorter)])
+    return start_match or phonetic_match
+
+def has_common_components(name1, name2):
+    components1 = set(name1.split())
+    components2 = set(name2.split())
+    return components1.issubset(components2) or components2.issubset(components1)
+
+# Similarity functions
+def calculate_similarities(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    # Early return for strong matches
+    if initials_match(name1_no_titles, name2_no_titles):
+        return [1.0] * 6
+    if approximate_nickname_match(name1_no_titles, name2_no_titles):
+        return [1.0] * 6
+    if has_common_components(name1_no_titles, name2_no_titles):
+        return [0.9] * 6
+    if sorted(name1_no_titles.split()) == sorted(name2_no_titles.split()):
+        return [0.9] * 6
+
+    # Calculate various similarity scores
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+    soundex_sim = 1.0 if soundex_encoding(name1_no_titles) == soundex_encoding(name2_no_titles) else 0.0
+
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1_no_titles, name2_no_titles])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    def jaccard_similarity(name1, name2):
+        set1, set2 = set(name1.split()), set(name2.split())
+        return len(set1.intersection(set2)) / len(set1.union(set2))
+
+    jaccard_sim = jaccard_similarity(name1_no_titles, name2_no_titles)
+
+    return [phonetic_sim, levenshtein_sim, jaro_winkler_sim, soundex_sim, cosine_sim, jaccard_sim]
+
+# Create feature matrix with rule-based similarity scores and labels
+similarity_features = data.apply(lambda row: calculate_similarities(row['Name1'], row['Name2']), axis=1)
+X_similarity = pd.DataFrame(similarity_features.tolist(), columns=['Phonetic', 'Levenshtein', 'Jaro-Winkler', 'Soundex', 'Cosine', 'Jaccard'])
+
+# Vectorize names for additional features
+vectorizer = CountVectorizer().fit(data['Name1'] + data['Name2'])
+X_names = vectorizer.transform(data['Name1'] + " " + data['Name2'])
+
+# Concatenate similarity features with vectorized names
+X = pd.concat([X_similarity, pd.DataFrame(X_names.toarray())], axis=1)
+y = data['Label']
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Create and train the Random Forest classifier
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train, y_train)
+
+# Predict on the test set
+y_pred = clf.predict(X_test)
+
+# Calculate accuracy, precision, and recall
+accuracy = accuracy_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+
+print(f"Accuracy: {accuracy:.2f}")
+print(f"Precision: {precision:.2f}")
+print(f"Recall: {recall:.2f}")
+
+# Function to predict similarity between two names
+def predict_similarity(name1, name2):
+    similarity_features = calculate_similarities(name1, name2)
+    names_combined = [name1 + " " + name2]
+    names_vectorized = vectorizer.transform(names_combined)
+    combined_features = pd.concat([pd.DataFrame([similarity_features], columns=X_similarity.columns), pd.DataFrame(names_vectorized.toarray())], axis=1)
+    return clf.predict(combined_features)[0]
+
+# Example prediction
+name1 = "samuel gabrial cartar"
+name2 = "s gc"
+predicted_similarity = predict_similarity(name1, name2)
+print(f"Predicted Similarity between '{name1}' and '{name2}': {predicted_similarity}")
