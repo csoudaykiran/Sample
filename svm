@@ -1,11 +1,14 @@
 import pandas as pd
-from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import train_test_split
 from fuzzywuzzy import fuzz
 from metaphone import doublemetaphone
+from sklearn.preprocessing import StandardScaler
+import numpy as np
 
 # Load data from Excel
 file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
@@ -42,7 +45,7 @@ def calculate_similarities(name1, name2):
     vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
     ngram_matrix = vectorizer.fit_transform([name1, name2])
     cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
-    
+
     jaccard_sim = jaccard_similarity(name1, name2)
 
     # Return as a feature vector
@@ -56,21 +59,33 @@ for _, row in data.iterrows():
     X.append(calculate_similarities(name1, name2))
     y.append(label)
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# Convert to numpy arrays
+X = np.array(X)
+y = np.array(y)
 
-# Train a Support Vector Classifier
-clf = SVC(kernel='linear', random_state=42)  # You can also try 'rbf' or other kernels
-clf.fit(X_train, y_train)
+# Scale features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+# Create and train an ensemble of classifiers
+clf1 = SVC(kernel='linear', probability=True, random_state=42)
+clf2 = RandomForestClassifier(n_estimators=100, random_state=42)
+
+# Combine classifiers using a voting ensemble
+ensemble_clf = VotingClassifier(estimators=[('svm', clf1), ('rf', clf2)], voting='soft')
+ensemble_clf.fit(X_train, y_train)
 
 # Evaluate on the training set
-y_train_pred = clf.predict(X_train)
+y_train_pred = ensemble_clf.predict(X_train)
 train_accuracy = accuracy_score(y_train, y_train_pred)
 train_precision = precision_score(y_train, y_train_pred)
 train_recall = recall_score(y_train, y_train_pred)
 
 # Evaluate on the testing set
-y_pred = clf.predict(X_test)
+y_pred = ensemble_clf.predict(X_test)
 test_accuracy = accuracy_score(y_test, y_pred)
 test_precision = precision_score(y_test, y_pred)
 test_recall = recall_score(y_test, y_pred)
