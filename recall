@@ -1,4 +1,90 @@
 import pandas as pd
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def jaccard_similarity(name1, name2):
+    set1, set2 = set(name1.split()), set(name2.split())
+    return len(set1.intersection(set2)) / len(set1.union(set2))
+
+# Similarity functions
+def calculate_similarities(name1, name2):
+    name1, name2 = remove_titles(name1), remove_titles(name2)
+
+    # Calculate similarity features
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+    
+    jaccard_sim = jaccard_similarity(name1, name2)
+
+    # Return as a feature vector
+    return [phonetic_sim, levenshtein_sim, jaro_winkler_sim, cosine_sim, jaccard_sim]
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(calculate_similarities(name1, name2))
+    y.append(label)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train a Random Forest Classifier
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train, y_train)
+
+# Evaluate on the testing set
+y_pred = clf.predict(X_test)
+test_accuracy = accuracy_score(y_test, y_pred)
+test_precision = precision_score(y_test, y_pred)
+test_recall = recall_score(y_test, y_pred)
+
+# Print the performance metrics
+print(f"Testing Accuracy: {test_accuracy:.2f}")
+print(f"Testing Precision: {test_precision:.2f}")
+print(f"Testing Recall: {test_recall:.2f}")
+
+# Save the results to Excel
+results_df = pd.DataFrame({'Actual': y_test, 'Predicted': y_pred})
+output_file_path = 'ml_matched_names_output.xlsx'
+results_df.to_excel(output_file_path, index=False)
+
+print(f"Results saved to '{output_file_path}'")
+
+
+=============================================  old ==================================
+
+import pandas as pd
 from sklearn.metrics import precision_score, recall_score
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import CountVectorizer
