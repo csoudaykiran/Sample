@@ -507,6 +507,119 @@ features_df.to_excel(output_file_path, index=False)
 
 print(f"Feature data saved to '{output_file_path}'")
 
+======================== recall with no ml =================
+import pandas as pd
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import accuracy_score, recall_score
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    name = str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+    return ' '.join(name.split())  # Remove extra spaces
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return (encoded[0], encoded[1])  # Primary and secondary encodings
+
+def soundex_encoding(name):
+    name = normalize_name(name)
+    soundex_code = name[0].upper()  # Start with the first letter
+    counts = {'b': '1', 'f': '1', 'p': '1', 'v': '1',
+              'c': '2', 'g': '2', 'j': '2', 'k': '2', 'q': '2', 's': '2', 'x': '2', 'z': '2',
+              'd': '3', 't': '3',
+              'l': '4',
+              'm': '5', 'n': '5',
+              'r': '6'}
+    
+    for char in name[1:]:
+        if char in counts:
+            code = counts[char]
+            if code != soundex_code[-1]:  # Only add if different
+                soundex_code += code
+    
+    soundex_code = soundex_code.ljust(4, '0')  # Pad with zeros
+    return soundex_code
+
+def jaccard_similarity(name1, name2):
+    set1, set2 = set(name1.split()), set(name2.split())
+    return len(set1.intersection(set2)) / len(set1.union(set2))
+
+def ngram_similarity(name1, name2):
+    ngram_vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 2))
+    ngram_matrix = ngram_vectorizer.fit_transform([name1, name2])
+    similarity = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])
+    return similarity[0][0]
+
+# Similarity functions
+def calculate_similarities(name1, name2):
+    name1_norm, name2_norm = remove_titles(normalize_name(name1)), remove_titles(normalize_name(name2))
+    
+    # Calculate phonetic similarities
+    phonetic1 = phonetic_encoding(name1_norm)
+    phonetic2 = phonetic_encoding(name2_norm)
+    
+    phonetic_match = int(phonetic1[0] == phonetic2[0] or phonetic1[1] == phonetic2[1])
+    soundex_match = int(soundex_encoding(name1_norm) == soundex_encoding(name2_norm))
+    
+    # Calculate fuzzy similarities
+    levenshtein_sim = fuzz.ratio(name1_norm, name2_norm) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_norm, name2_norm) / 100.0
+    jaccard_sim = jaccard_similarity(name1_norm, name2_norm)
+    ngram_sim = ngram_similarity(name1_norm, name2_norm)
+    
+    # Use a threshold to determine if the names are similar
+    thresholds = [0.80, 0.85, 0.75, 0.70, 0.70]  # Adjusted thresholds for each measure
+
+    # Match if any similarity score exceeds the threshold
+    is_match = (phonetic_match or soundex_match or
+                levenshtein_sim >= thresholds[0] or
+                jaro_winkler_sim >= thresholds[1] or
+                jaccard_sim >= thresholds[2] or
+                ngram_sim >= thresholds[3])
+
+    return int(is_match)
+
+# Prepare results
+results = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    match = calculate_similarities(name1, name2)
+    results.append({'Name1': name1, 'Name2': name2, 'Match': match, 'Label': label})
+
+# Create a DataFrame for results
+results_df = pd.DataFrame(results)
+
+# Calculate performance metrics
+y_true = results_df['Label']  # Actual labels
+y_pred = results_df['Match']   # Predicted matches
+
+# Calculate accuracy and recall
+accuracy = accuracy_score(y_true, y_pred)
+recall = recall_score(y_true, y_pred)
+
+# Print performance metrics
+print(f"Accuracy: {accuracy:.2f}")
+print(f"Recall: {recall:.2f}")
+
+# Save the results to Excel
+output_file_path = 'ml_matched_names_output.xlsx'
+results_df.to_excel(output_file_path, index=False)
+
+print(f"Results saved to '{output_file_path}'")
 
 
 
