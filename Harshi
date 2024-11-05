@@ -193,4 +193,104 @@ def phonetic_matching(name1, name2):
     
     return (primary == secondary) or (soundex1 == soundex2)
 
+=============feauture extraction and classification using ml=========
+
+
+import pandas as pd
+from sklearn.metrics import precision_score, recall_score
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Data Preprocessing
+data = data.dropna(subset=['Name1', 'Name2'])  # Remove rows where 'Name1' or 'Name2' is missing
+data['Name1'] = data['Name1'].str.strip().fillna('')  # Remove leading/trailing whitespace and fill NaNs with empty strings
+data['Name2'] = data['Name2'].str.strip().fillna('')  # Remove leading/trailing whitespace and fill NaNs with empty strings
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def extract_features(name1, name2):
+    features = {}
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    features['length_diff'] = abs(len(name1_no_titles) - len(name2_no_titles))
+    features['common_components'] = len(set(name1_no_titles.split()).intersection(set(name2_no_titles.split())))
+    features['initials_match'] = initials_match(name1_no_titles, name2_no_titles)
+    features['phonetic_similarity'] = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    features['levenshtein_similarity'] = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    features['jaro_winkler_similarity'] = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+
+    return features
+
+# Create feature matrix
+def create_feature_matrix(data):
+    features = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        feature_dict = extract_features(name1, name2)
+        feature_dict['label'] = row['Label']  # Assuming there's a 'Label' column for actual matching labels
+        features.append(feature_dict)
+    
+    return pd.DataFrame(features)
+
+# Create features from the dataset
+features_df = create_feature_matrix(data)
+
+# Prepare features and labels
+X = features_df.drop('label', axis=1)
+y = features_df['label']
+
+# Standardize features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+# Train a logistic regression model
+model = LogisticRegression()
+model.fit(X_train, y_train)
+
+# Predict on the test set
+y_pred = model.predict(X_test)
+
+# Calculate precision, recall, and accuracy
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+accuracy = (y_pred == y_test).mean() * 100
+
+# Print the results
+print(f"Accuracy: {accuracy:.2f}%")
+print(f"Precision: {precision:.2f}")
+print(f"Recall: {recall:.2f}")
+
+# Save matched results to a new Excel file
+output_file_path = 'matched_names_output.xlsx'
+features_df.to_excel(output_file_path, index=False)
+
+print(f"Feature data saved to '{output_file_path}'")
+
+
 
