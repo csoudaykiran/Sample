@@ -1,123 +1,156 @@
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import precision_score, recall_score
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import CountVectorizer
-from fuzzywuzzy import fuzz
+from jellyfish import jaro_winkler_similarity, soundex
+from Levenshtein import distance as levenshtein_distance
+from difflib import SequenceMatcher
+from sklearn.metrics import precision_score, recall_score, accuracy_score
 from metaphone import doublemetaphone
-from jellyfish import soundex
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 
-# Load data from Excel
-file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
-data = pd.read_excel(file_path)
+# Load the dataset
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'
+df1 = pd.read_excel(file_path)
 
-# List of common titles and honorifics to ignore
-titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+# Extract target names and flagged names
+target_name = df1['Name'].tolist()
+flagged_name = df1['Name2'].tolist()
+lab = df1['Label'].tolist()
 
-# Preprocessing functions
+# Function to normalize names
 def normalize_name(name):
-    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+    return ''.join(e for e in name.lower() if e.isalnum())
 
-def remove_titles(name):
-    parts = normalize_name(name).split()
-    return ' '.join(part for part in parts if part not in titles)
+# Normalize names
+target_names = [normalize_name(name) for name in target_name]
+flagged_names = [normalize_name(name) for name in flagged_name]
 
-def phonetic_encoding(name):
-    encoded = doublemetaphone(name)
-    return encoded[0] if encoded[0] else encoded[1]
+# Initials Similarity
+def get_initials(name):
+    return ''.join([part[0] for part in name.split()])
 
-def soundex_encoding(name):
-    return soundex(name)
-
-def calculate_similarity_features(name1, name2):
-    name1, name2 = normalize_name(name1), normalize_name(name2)
-    name1_no_titles = remove_titles(name1)
-    name2_no_titles = remove_titles(name2)
-
-    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
-    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
-    cosine_sim = cosine_similarity(
-        CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1_no_titles, name2_no_titles])
-    )[0][1]
+# Calculate similarity between two names
+def calculate_similarity(name1, name2):
+    if name1 == name2:
+        return 1.0
     
-    return phonetic_sim, levenshtein_sim, cosine_sim
+    # Levenshtein Distance
+    lev_dist = levenshtein_distance(name1, name2)
+    lev_sim = 1 - lev_dist / max(len(name1), len(name2)) if max(len(name1), len(name2)) > 0 else 0
 
-# Train data for the ML model
-train_data = pd.DataFrame({
-    'name1': ['samuel gabrial cartar', 'jerrie edwards', 'john doe', 'jane smith'],
-    'name2': ['s gc', 'jerry edwards', 'jon doe', 'j smith'],
-    'label': [1, 1, 1, 1]  # 1 indicates similar, 0 indicates not similar
-})
+    # Cosine Similarity
+    vectorizer = TfidfVectorizer().fit_transform([name1, name2])
+    vectors = vectorizer.toarray()
+    cos_sim = cosine_similarity(vectors)[0][1]
 
-# Extract features for training
-train_data[['phonetic_sim', 'levenshtein_sim', 'cosine_sim']] = train_data.apply(
-    lambda row: pd.Series(calculate_similarity_features(row['name1'], row['name2'])), axis=1
-)
+    # Jaro-Winkler Similarity
+    jw_sim = jaro_winkler_similarity(name1, name2)
 
-# Train the ML model
-X_train = train_data[['phonetic_sim', 'levenshtein_sim', 'cosine_sim']]
-y_train = train_data['label']
-model = RandomForestClassifier()
-model.fit(X_train, y_train)
+    # Soundex Similarity
+    soundex_sim = 1 if soundex(name1) == soundex(name2) else 0
 
-# Calculate final score using both heuristic and ML model
-def final_score(name1, name2):
-    phonetic_sim, levenshtein_sim, cosine_sim = calculate_similarity_features(name1, name2)
+    # Out of Order Names
+    name1_components = set(name1.split())
+    name2_components = set(name2.split())
+    ooc_sim = len(name1_components.intersection(name2_components)) / max(len(name1_components), len(name2_components))
+
+    # Missing Spaces and Hyphens Similarity
+    ms_sim = 1 if name1.replace(' ', '').replace('-', '') == name2.replace(' ', '').replace('-', '') else 0
+
+    # Metaphone Similarity
+    metaphone_sim = 1 if doublemetaphone(name1)[0] == doublemetaphone(name2)[0] else 0
+
+    # Truncated Names Similarity
+    similarity = SequenceMatcher(None, name1, name2).ratio()
+    trunc_sim = 1 if similarity >= 0.6 else 0
+
+    if ooc_sim or ms_sim or trunc_sim or metaphone_sim:
+        return 1.0
+
+    # Combine similarities (weighted average)
+    combined_sim = (0.2 * lev_sim + 0.3 * jw_sim + 0.2 * soundex_sim + 0.3 * cos_sim)
+    return combined_sim
+
+def find_metaphone_substrings(main_string, compare_string):
+    compare_meta = doublemetaphone(compare_string)[0]
+    matching_substrings = []
     
-    # Calculate heuristic score
-    heuristic_score = (0.25 * phonetic_sim + 0.25 * levenshtein_sim + 0.50 * cosine_sim)
-    
-    # Predict using ML model
-    features = pd.DataFrame([[phonetic_sim, levenshtein_sim, cosine_sim]], columns=['phonetic_sim', 'levenshtein_sim', 'cosine_sim'])
-    ml_score = model.predict_proba(features)[:, 1][0]  # Probability of similarity
-    
-    # Combine scores with weights
-    combined_score = 0.5 * heuristic_score + 0.5 * ml_score
-    return combined_score
+    # Traverse the main string to find substrings
+    for i in range(len(main_string)):
+        for j in range(i + 1, len(main_string) + 1):
+            substring = main_string[i:j]
+            substring_meta = doublemetaphone(substring)[0]
+            # Check if the Metaphone representation matches
+            if substring_meta == compare_meta:
+                matching_substrings.append(substring)
+    return len(matching_substrings) > 0
 
-# Matching function
-def match_names_from_excel(data, threshold=0.6):
-    results = []
-    for _, row in data.iterrows():
-        name1, name2 = row['Name1'], row['Name2']
-        score = final_score(name1, name2)
-        label = 1 if score >= threshold else 0
-        results.append((name1, name2, score, label))
-    
-    results_df = pd.DataFrame(results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])
-    return results_df
+# Sample data for initial testing
+data = {
+    'name': ['samuel gabrial cartar', 'jerrie edwards', 'john doe', 'jane smith'],
+    'name2': ['sgc', 'jerry edwards', 'jon doe', 'j smith'],
+    'similar': [1, 1, 1, 1]  # 1 indicates similar, 0 indicates not similar
+}
 
-# Run the matching and store the results
-matched_df = match_names_from_excel(data, threshold=0.6)
+# Create a DataFrame
+df = pd.DataFrame(data)
 
-# Add actual labels to the matched results for comparison
-matched_df['Actual Label'] = data['Label']
+# Vectorize the names
+vectorizer = CountVectorizer().fit(df['name'] + df['name2'])
+X = vectorizer.transform(df['name'] + df['name2'])
 
-# Calculate accuracy, precision, and recall
-accuracy = (matched_df['Predicted Label'] == matched_df['Actual Label']).mean() * 100
-precision = precision_score(matched_df['Actual Label'], matched_df['Predicted Label'])
-recall = recall_score(matched_df['Actual Label'], matched_df['Predicted Label'])
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, df['similar'], test_size=0.2, random_state=42)
 
-# Identify mismatches
-mismatches = matched_df[matched_df['Predicted Label'] != matched_df['Actual Label']]
+# Create and train the random forest classifier
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train, y_train)
 
-# Print mismatched rows
-if not mismatches.empty:
-    print("Mismatches between Actual and Predicted Labels:")
-    print(mismatches)
-else:
-    print("All predictions match the actual labels.")
+# Predict on the test set
+y_pred = clf.predict(X_test)
 
-# Save mismatches to a separate Excel file
-mismatches_file_path = 'mismatched_names_output.xlsx'
-mismatches.to_excel(mismatches_file_path, index=False)
+# Calculate accuracy
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Accuracy: {accuracy}")
 
-# Save results to a new Excel file
-output_file_path = 'matched_names_output.xlsx'
-matched_df.to_excel(output_file_path, index=False)
+# Function to predict similarity between two names
+def predict_similarity(name1, name2):
+    names_combined = [name1 + " " + name2]
+    names_vectorized = vectorizer.transform(names_combined)
+    return clf.predict(names_vectorized)[0]
 
-print(f"Matched names saved to '{output_file_path}'")
-print(f"Mismatched names saved to '{mismatches_file_path}'")
-print(f"Accuracy: {accuracy:.2f}%")
-print(f"Precision: {precision:.2f}")
-print(f"Recall: {recall:.2f}")
+# Flag matches based on similarity threshold
+matches = []
+similarity_threshold = 0.6
+
+for i in range(len(target_name)):
+    sub_similarity = 0
+    if target_name[i] in flagged_name[i] or flagged_name[i] in target_name[i]:
+        sub_similarity = 1
+        
+    initials_similarity = 0
+    if get_initials(target_name[i]) in get_initials(flagged_name[i]):
+        initials_similarity = 1
+        
+    similarity = calculate_similarity(target_name[i], flagged_name[i])
+    rand_sim = 1 if predict_similarity(target_name[i], flagged_name[i]) else 0
+
+    similarity = max(initials_similarity, similarity, sub_similarity, rand_sim)
+
+    if similarity >= similarity_threshold or find_metaphone_substrings(target_name[i], flagged_name[i]):
+        matches.append([(target_name[i], flagged_name[i]), 1])
+    else:
+        matches.append([(target_name[i], flagged_name[i]), 0])
+
+# Create a DataFrame for matches
+matches_df = pd.DataFrame(matches, columns=['Target', 'Similarity'])
+
+# Calculate metrics
+accuracy = accuracy_score(lab, matches_df['Similarity'])
+precision = precision_score(lab, matches_df['Similarity'])
+recall = recall_score(lab, matches_df['Similarity'])
+
+print(f"Precision: {precision}")
+print(f"Recall: {recall}")
+print(f"Accuracy: {accuracy}")
