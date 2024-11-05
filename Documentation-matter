@@ -1,0 +1,14 @@
+=============1===============
+Results Analysis for Different Weight Configurations
+
+The bar graph illustrates the impact of three different weight configurations on the accuracy, precision, and recall of our name-matching algorithm. Each configuration, represented by "Set 1," "Set 2," and "Set 3," applies distinct weights to five similarity measures: phonetic similarity, Levenshtein similarity, Jaro-Winkler similarity, cosine similarity, and Jaccard similarity. The performance metrics—accuracy, precision, and recall—are displayed as individual bars for each set, with exact metric values shown above each bar for clarity.
+
+Weight Configurations:
+
+Set 1: Weights (0.29, 0.29, 0.39, 0.39, 0.1) yielded an accuracy of 96.75%, precision of 98%, and recall of 96%.
+Set 2: Weights (0.3, 0.3, 0.3, 0.3, 0.1) yielded a slightly lower accuracy of 96.51%, higher precision of 99%, but a reduced recall of 95%.
+Set 3: Weights (0.25, 0.25, 0.4, 0.4, 0.1) achieved the highest performance overall, with an accuracy of 96.81%, precision of 98%, and recall of 96%.
+Insights: From these results, we observe that Set 3 provides the best balance between accuracy, precision, and recall. Adjusting weights significantly affects the model's accuracy, as shown in the drop observed in Set 2 with more balanced weights across measures. This analysis indicates that slightly higher weights for Jaro-Winkler and cosine similarity measures improve accuracy while maintaining high precision and recall, demonstrating their effectiveness in the name-matching task.
+
+=======2==============
+The bar graph illustrates the model's performance across three key metrics: accuracy, precision, and recall. Each bar represents the metric's value, with accuracy at 96.75%, precision at 98.00%, and recall at 96.00%. These values reflect the model’s ability to accurately match names, with high precision and recall indicating reliable and consistent performance in identifying correct matches. The overall results demonstrate strong model effectiveness in achieving balanced accuracy, precision, and recall, highlighting the robustness of the name-matching algorithm use
