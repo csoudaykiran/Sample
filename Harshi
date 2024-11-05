@@ -392,4 +392,121 @@ features_df.to_excel(output_file_path, index=False)
 print(f"Feature data saved to '{output_file_path}'")
 
 
+==========modified=======
+import pandas as pd
+from sklearn.metrics import precision_score, recall_score, accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import make_scorer
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Data Preprocessing
+data = data.dropna(subset=['Name1', 'Name2'])  # Remove rows where 'Name1' or 'Name2' is missing
+data['Name1'] = data['Name1'].str.strip().fillna('')  # Remove leading/trailing whitespace
+data['Name2'] = data['Name2'].str.strip().fillna('')  # Remove leading/trailing whitespace
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+# Feature Engineering
+def extract_features(name1, name2):
+    features = {}
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    # Feature 1: Length difference
+    features['length_diff'] = abs(len(name1_no_titles) - len(name2_no_titles))
+
+    # Feature 2: Common components count
+    features['common_components'] = len(set(name1_no_titles.split()).intersection(set(name2_no_titles.split())))
+
+    # Feature 3: Initials match
+    features['initials_match'] = int(initials_match(name1_no_titles, name2_no_titles))
+
+    # Feature 4: Phonetic similarity
+    features['phonetic_similarity'] = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+
+    # Feature 5: Levenshtein similarity
+    features['levenshtein_similarity'] = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+
+    # Feature 6: Jaro-Winkler similarity
+    features['jaro_winkler_similarity'] = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+
+    return features
+
+# Create feature matrix
+def create_feature_matrix(data):
+    features = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        feature_dict = extract_features(name1, name2)
+        feature_dict['label'] = row['Label']  # Assuming there's a 'Label' column for actual matching labels
+        features.append(feature_dict)
+    
+    return pd.DataFrame(features)
+
+# Create features from the dataset
+features_df = create_feature_matrix(data)
+
+# Prepare features and labels
+X = features_df.drop('label', axis=1)
+y = features_df['label']
+
+# Data Splitting
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+# Step 4: Model Selection and Training with class weight adjustment
+model = RandomForestClassifier(n_estimators=100, class_weight='balanced', random_state=42)
+model.fit(X_train, y_train)
+
+# Step 5: Prediction
+y_pred = model.predict(X_test)
+
+# Step 6: Model Evaluation
+accuracy = accuracy_score(y_test, y_pred) * 100
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+
+# Adjusting threshold based on predicted probabilities
+y_pred_proba = model.predict_proba(X_test)[:, 1]  # Get the predicted probabilities for the positive class
+threshold = 0.6  # Setting threshold to 0.6
+y_pred_adjusted = (y_pred_proba >= threshold).astype(int)
+
+# Re-evaluate metrics with adjusted predictions
+adjusted_accuracy = accuracy_score(y_test, y_pred_adjusted) * 100
+adjusted_precision = precision_score(y_test, y_pred_adjusted)
+adjusted_recall = recall_score(y_test, y_pred_adjusted)
+
+# Print the results
+print(f"Original Accuracy: {accuracy:.2f}%")
+print(f"Original Precision: {precision:.2f}")
+print(f"Original Recall: {recall:.2f}")
+
+print(f"Adjusted Accuracy: {adjusted_accuracy:.2f}%")
+print(f"Adjusted Precision: {adjusted_precision:.2f}")
+print(f"Adjusted Recall: {adjusted_recall:.2f}")
+
+# Save results to a new Excel file if necessary
+output_file_path = 'matched_names_output.xlsx'
+features_df.to_excel(output_file_path, index=False)
+
+print(f"Feature data saved to '{output_file_path}'")
+
+
+
 
