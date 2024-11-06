@@ -218,6 +218,54 @@ results_df = pd.DataFrame(results, columns=['Name1', 'Name2', 'Similarity Score'
 results_df.to_excel(output_file_path, index=False)
 print(f"Results saved to {output_file_path}")
 
+===============cell3===============================
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.model_selection import train_test_split
+import numpy as np
+
+# Prepare training data for evaluation in approach 2
+def prepare_training_data(data):
+    X = []
+    y = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = name_matching_model.calculate_similarities(name1, name2)
+        X.append([score])
+        y.append(row['Label'])
+    return np.array(X), np.array(y)
+
+# Split data into training (80%), validation (10%), and testing (10%) sets
+X, y = prepare_training_data(data)
+X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.2, random_state=42)
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+
+# Train the model on the training dataset
+name_matching_model.model.fit(X_train, y_train)
+
+# Evaluate on training set
+y_train_pred = name_matching_model.model.predict(X_train)
+train_accuracy = accuracy_score(y_train, y_train_pred)
+train_precision = precision_score(y_train, y_train_pred)
+train_recall = recall_score(y_train, y_train_pred)
+
+# Evaluate on validation set
+y_val_pred = name_matching_model.model.predict(X_val)
+val_accuracy = accuracy_score(y_val, y_val_pred)
+val_precision = precision_score(y_val, y_val_pred)
+val_recall = recall_score(y_val, y_val_pred)
+
+# Evaluate on testing set
+y_test_pred = name_matching_model.model.predict(X_test)
+test_accuracy = accuracy_score(y_test, y_test_pred)
+test_precision = precision_score(y_test, y_test_pred)
+test_recall = recall_score(y_test, y_test_pred)
+
+# Print metrics for each set
+print(f"Approach 2 - Training Accuracy: {train_accuracy:.2f}, Precision: {train_precision:.2f}, Recall: {train_recall:.2f}")
+print(f"Approach 2 - Validation Accuracy: {val_accuracy:.2f}, Precision: {val_precision:.2f}, Recall: {val_recall:.2f}")
+print(f"Approach 2 - Testing Accuracy: {test_accuracy:.2f}, Precision: {test_precision:.2f}, Recall: {test_recall:.2f}")
+
+
 
 
 ======================================== approach -2 ( using ml )===============================================
