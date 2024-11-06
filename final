@@ -184,6 +184,81 @@ results_df.to_excel(output_file_path, index=False)
 print(f"Results saved to {output_file_path}")
 
 
+cell -3 :
+
+# Complete code that includes both the class definition and prediction logic
+
+import pandas as pd
+import pickle
+from sklearn.ensemble import RandomForestClassifier
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+
+# Define the NameMatchingModel class
+class NameMatchingModel:
+    def __init__(self):
+        self.model = RandomForestClassifier(random_state=42)
+
+    def normalize_name(self, name):
+        return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+    def calculate_similarities(self, name1, name2):
+        # Similarity calculation logic here
+        return fuzz.ratio(name1, name2) / 100.0
+    
+    def train_model(self, data):
+        X = []
+        y = []
+        for _, row in data.iterrows():
+            name1, name2 = row['Name1'], row['Name2']
+            score = self.calculate_similarities(name1, name2)
+            X.append([score])
+            y.append(row['Label'])
+        X, y = np.array(X), np.array(y)
+
+        # Train the model
+        self.model.fit(X, y)
+
+    def predict(self, name1, name2):
+        score = self.calculate_similarities(name1, name2)
+        prediction = self.model.predict([[score]])[0]
+        return score, prediction
+
+# Load the trained model (this is done when you send the file to your friend)
+def load_model(filename='name_matching_model.pkl'):
+    with open(filename, 'rb') as file:
+        model = pickle.load(file)
+    return model
+
+# Predict similarity score and label for two input names
+def predict_similarity(model, name1, name2, threshold=0.6):
+    score = model.calculate_similarities(name1, name2)
+    label = 1 if score >= threshold else 0
+    return round(score, 2), label
+
+# Loading new input data and getting results
+input_file_path = 'new_input_file.xlsx'  # Replace with the path of your new input Excel file
+input_data = pd.read_excel(input_file_path)
+
+# Load the pickled model
+loaded_model = load_model()
+
+# Create DataFrame for results
+results = []
+for _, row in input_data.iterrows():
+    name1, name2 = row['Name1'], row['Name2']
+    score, label = predict_similarity(loaded_model, name1, name2)
+    results.append([name1, name2, score, label])
+
+# Save results to a new Excel file
+output_file_path = 'name_matching_results.xlsx'  # Specify desired output file path
+results_df = pd.DataFrame(results, columns=['Name1', 'Name2', 'Similarity Score', 'Label'])
+results_df.to_excel(output_file_path, index=False)
+print(f"Results saved to {output_file_path}")
+
+
+
 ======================================== approach -2 ( using ml )===============================================
 
 
