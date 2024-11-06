@@ -147,45 +147,6 @@ name_matching_model.save_model()
 
 Cell  - 2 :
 
-# Import necessary libraries
-import pandas as pd
-import pickle
-
-# Load the entire model (with the functions)
-def load_model(filename='name_matching_model.pkl'):
-    with open(filename, 'rb') as file:
-        model = pickle.load(file)
-    return model
-
-# Load the model
-loaded_model = load_model()
-
-# Predict similarity score and label for two input names
-def predict_similarity(model, name1, name2, threshold=0.6):
-    score = model.calculate_similarities(name1, name2)  # Using the method from the class
-    label = 1 if score >= threshold else 0
-    return round(score, 2), label
-
-# Load new input Excel file
-input_file_path = 'new_input_file.xlsx'  # Replace with the path of your new input Excel file
-input_data = pd.read_excel(input_file_path)
-
-# Create DataFrame for results
-results = []
-for _, row in input_data.iterrows():
-    name1, name2 = row['Name1'], row['Name2']
-    score, label = predict_similarity(loaded_model, name1, name2)
-    results.append([name1, name2, score, label])
-
-# Save results to a new Excel file
-results_df = pd.DataFrame(results, columns=['Name1', 'Name2', 'Similarity Score', 'Label'])
-output_file_path = 'name_matching_results.xlsx'  # Specify desired output file path
-results_df.to_excel(output_file_path, index=False)
-print(f"Results saved to {output_file_path}")
-
-
-cell -3 :
-
 # Complete code that includes both the class definition and prediction logic
 
 import pandas as pd
