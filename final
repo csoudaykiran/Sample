@@ -1,8 +1,12 @@
+===============================   final code ========================================
 
+Cell - 1 :
+
+# Import necessary libraries
 import pandas as pd
 import numpy as np
+import pickle
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import precision_score, recall_score, confusion_matrix
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import CountVectorizer
 from fuzzywuzzy import fuzz
@@ -133,29 +137,50 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 model = RandomForestClassifier(random_state=42)
 model.fit(X_train, y_train)
 
-# Make predictions on the testing set
-y_pred = model.predict(X_test)
+# Save the trained model as a .pkl file
+def save_model(model, filename='name_matching_model.pkl'):
+    with open(filename, 'wb') as file:
+        pickle.dump(model, file)
+    print(f"Model saved as {filename}")
 
-# Calculate metrics
-accuracy = (y_pred == y_test).mean() * 100
-precision = precision_score(y_test, y_pred)
-recall = recall_score(y_test, y_pred)
+save_model(model)
 
-# Calculate confusion matrix
-cm = confusion_matrix(y_test, y_pred)
+Cell  - 2 :
 
-print("Confusion Matrix:")
-print(cm)
+# Import necessary libraries
+import pandas as pd
+import pickle
 
-print("Model Performance:")
-print(f"Accuracy: {accuracy:.2f}%")
-print(f"Precision: {precision:.2f}")
-print(f"Recall: {recall:.2f}")
+# Load the trained model
+def load_model(filename='name_matching_model.pkl'):
+    with open(filename, 'rb') as file:
+        model = pickle.load(file)
+    return model
 
+# Load the model
+loaded_model = load_model()
 
-# Get misclassified indices from the confusion matrix
-misclassified_indices = np.where((y_test == 1) & (y_pred == 0))[0]  # Label 1 (matches) predicted as 0 (non-matches)
+# Predict similarity score and label for two input names
+def predict_similarity(model, name1, name2, threshold=0.6):
+    # Use the calculate_similarities function from the model’s feature set (if embedded)
+    score = model.calculate_similarities(name1, name2)  # Assuming function is embedded in model.pkl
+    label = 1 if score >= threshold else 0
+    return round(score, 2), label
 
-misclassified_df = data.iloc[misclassified_indices]
+# Load new input Excel file
+input_file_path = 'new_input_file.xlsx'  # Replace with the path of your new input Excel file
+input_data = pd.read_excel(input_file_path)
 
-print(misclassified_df)
+# Create DataFrame for results
+results = []
+for _, row in input_data.iterrows():
+    name1, name2 = row['Name1'], row['Name2']
+    score, label = predict_similarity(loaded_model, name1, name2)
+    results.append([name1, name2, score, label])
+
+# Save results to a new Excel file
+results_df = pd.DataFrame(results, columns=['Name1', 'Name2', 'Similarity Score', 'Label'])
+output_file_path = 'name_matching_results.xlsx'  # Specify desired output file path
+results_df.to_excel(output_file_path, index=False)
+print(f"Results saved to {output_file_path}")
+
