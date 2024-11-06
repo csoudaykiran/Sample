@@ -1,0 +1,123 @@
+import pandas as pd
+import numpy as np
+import pickle
+from sklearn.ensemble import RandomForestClassifier
+from fuzzywuzzy import fuzz
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+
+# Define the NameMatchingModel class
+class NameMatchingModel:
+    def __init__(self):
+        self.model = RandomForestClassifier(random_state=42)
+
+    def normalize_name(self, name):
+        return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+    def calculate_similarities(self, name1, name2):
+        # Similarity calculation logic here
+        return fuzz.ratio(name1, name2) / 100.0
+
+    def train_model(self, data):
+        X = []
+        y = []
+        for _, row in data.iterrows():
+            name1, name2 = row['Name1'], row['Name2']
+            score = self.calculate_similarities(name1, name2)
+            X.append([score])
+            y.append(row['Label'])
+        X, y = np.array(X), np.array(y)
+
+        # Train the model
+        self.model.fit(X, y)
+
+    def predict(self, name1, name2):
+        score = self.calculate_similarities(name1, name2)
+        prediction = self.model.predict([[score]])[0]
+        return score, prediction
+
+# Load and save the trained model
+def load_model(filename='name_matching_model.pkl'):
+    with open(filename, 'rb') as file:
+        model = pickle.load(file)
+    return model
+
+def save_model(model, filename='name_matching_model.pkl'):
+    with open(filename, 'wb') as file:
+        pickle.dump(model, file)
+    print(f"Model saved as {filename}")
+
+# Prepare training data for evaluation
+def prepare_training_data(data):
+    X = []
+    y = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = name_matching_model.calculate_similarities(name1, name2)
+        X.append([score])
+        y.append(row['Label'])
+    return np.array(X), np.array(y)
+
+# Define function to get false positives
+def get_false_positives(model, data, threshold=0.6):
+    false_positives = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score, prediction = model.predict(name1, name2)
+        if score >= threshold and prediction == 0:  # FP: score > threshold but predicted as non-match
+            false_positives.append((name1, name2, score))
+    return false_positives
+
+# Function for iterative refinement to reduce false positives
+def refine_model(name_matching_model, data, num_iterations=5, threshold=0.6):
+    for iteration in range(num_iterations):
+        # Train the model initially
+        name_matching_model.train_model(data)
+
+        # Get the false positives after initial training
+        false_positives = get_false_positives(name_matching_model, data, threshold)
+        
+        if len(false_positives) == 0:
+            print("No false positives detected. Achieving 100% recall.")
+            break  # If no false positives, we have achieved 100% recall
+
+        # Add false positives back to the training data as "true matches" to refine the model
+        false_positive_data = pd.DataFrame(false_positives, columns=["Name1", "Name2", "Similarity Score", "Label"])
+        false_positive_data['Label'] = 1  # Treat false positives as true matches for retraining
+
+        # Append false positives to the original data
+        data = data.append(false_positive_data, ignore_index=True)
+
+        print(f"Iteration {iteration + 1}: Added {len(false_positives)} false positives.")
+    
+    return name_matching_model
+
+# Example Usage
+# Assuming `data` is your initial training data with columns 'Name1', 'Name2', and 'Label'
+# Replace this with actual data (read from Excel or CSV, etc.)
+data = pd.read_excel('initial_training_data.xlsx')  # Replace with your dataset
+
+# Initialize the model
+name_matching_model = NameMatchingModel()
+
+# Perform iterative training and refinement
+refined_model = refine_model(name_matching_model, data, num_iterations=10, threshold=0.6)
+
+# Save the refined model
+save_model(refined_model)
+
+# Evaluate the final model
+X, y = prepare_training_data(data)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train and evaluate on final model
+refined_model.model.fit(X_train, y_train)
+y_pred = refined_model.model.predict(X_test)
+
+# Calculate metrics
+accuracy = accuracy_score(y_test, y_pred)
+precision = precision_score(y_test, y_pred)
+recall = recall_score(y_test, y_pred)
+
+print(f"Final Model - Accuracy: {accuracy:.2f}, Precision: {precision:.2f}, Recall: {recall:.2f}")
+
