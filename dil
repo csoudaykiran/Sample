@@ -17,7 +17,12 @@ file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Ex
 data = pd.read_excel(file_path)
 
 # List of common titles and honorifics to ignore
-titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 'captain', 'major'}
+titles = {'Dr.', 'Prof.', 'Mr.', 'Mrs.', 'Ms.', 'Miss', 'Mx.', 'Sir', 'Dame', 'Rev.', 'Rabbi', 'Imam', 
+    'Hon.', 'Ph.D.', 'M.D.', 'B.A.', 'M.A.', 'M.Sc.', 'J.D.', 'D.D.S.', 'M.Ed.', 'M.P.H.', 'Gen.', 
+    'Lt.', 'Capt.', 'Sgt.', 'Maj.', 'Col.', 'Pvt.', 'Adm.', 'President', 'Senator', 'Governor', 
+    'Congressman', 'Congresswoman', 'Mayor', 'Prime Minister', 'Minister', 'King', 'Queen', 'Prince', 
+    'Princess', 'Duke', 'Duchess', 'Earl', 'Countess', 'Baron', 'Baroness', 'Lord', 'Lady', 'Count', 
+    'Speaker', 'Ambassador', 'Coach'}
 
 # Preprocessing functions
 def normalize_name(name):
