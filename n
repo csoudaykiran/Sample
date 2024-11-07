@@ -1,3 +1,167 @@
+====================================== cell -1 ===========================================
+
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+import pickle
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing and helper functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def soundex_encoding(name):
+    return soundex(name)
+
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    
+    # Feature extraction
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+    
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+    
+    soundex_sim = 1.0 if soundex_encoding(name1) == soundex_encoding(name2) else 0.0
+    
+    # Feature list to be used by ML model
+    return [phonetic_sim, levenshtein_sim, jaro_winkler_sim, cosine_sim, soundex_sim]
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(generate_features(name1, name2))
+    y.append(label)
+
+# Train the ML model
+ml_model = RandomForestClassifier(n_estimators=100, random_state=42)
+ml_model.fit(X, y)
+
+# Save the trained model to a pickle file
+with open('random_forest_model.pkl', 'wb') as f:
+    pickle.dump(ml_model, f)
+
+print("Model training complete and saved as 'random_forest_model.pkl'.")
+
+
+============================================= cell 2 ==========================================
+
+import pandas as pd
+import pickle
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+
+# Load the pre-trained Random Forest model from the pickle file
+with open('random_forest_model.pkl', 'rb') as f:
+    ml_model = pickle.load(f)
+
+# Preprocessing and helper functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def soundex_encoding(name):
+    return soundex(name)
+
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    
+    # Feature extraction
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+    
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+    
+    soundex_sim = 1.0 if soundex_encoding(name1) == soundex_encoding(name2) else 0.0
+    
+    # Feature list to be used by ML model
+    return [phonetic_sim, levenshtein_sim, jaro_winkler_sim, cosine_sim, soundex_sim]
+
+# Rule-Based Similarity Function
+def calculate_similarities(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    
+    # Similarity calculations
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+    soundex_sim = 1.0 if soundex_encoding(name1) == soundex_encoding(name2) else 0.0
+    
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    # Weighted combination of similarities
+    weighted_score = (0.3 * phonetic_sim +
+                      0.3 * levenshtein_sim +
+                      0.4 * jaro_winkler_sim +
+                      0.4 * cosine_sim +
+                      0.2 * soundex_sim)
+    return weighted_score
+
+def rule_based_predict(name1, name2, threshold=0.6):
+    score = calculate_similarities(name1, name2)
+    return 1 if score >= threshold else 0
+
+# Ensemble Prediction Function
+def ensemble_predict(name1, name2, threshold=0.6):
+    # Rule-based prediction
+    rule_based_pred = rule_based_predict(name1, name2, threshold)
+    
+    # ML prediction
+    features = generate_features(name1, name2)
+    ml_pred = ml_model.predict([features])[0]
+    
+    # Combine using OR logic for ensemble
+    final_pred = 1 if rule_based_pred == 1 or ml_pred == 1 else 0
+    return final_pred
+
+# Load new data (provided by the client)
+new_data = pd.read_excel('new_input_file.xlsx')  # Replace with the new file path
+
+# Apply Ensemble Model and Output Results
+results = []
+for _, row in new_data.iterrows():
+    name1, name2 = row['Name1'], row['Name2']
+    similarity_score = calculate_similarities(name1, name2)
+    label = ensemble_predict(name1, name2)
+    results.append([name1, name2, similarity_score, label])
+
+# Create a DataFrame with the results
+output_df = pd.DataFrame(results, columns=["Name1", "Name2", "Similarity Score", "Label"])
+
+# Save the results to a new Excel file
+output_df.to_excel('output_results.xlsx', index=False)
+print("Results saved to 'output_results.xlsx'.")
+
+
+==================================== combined ===================================================
+
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
