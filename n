@@ -1,0 +1,121 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.model_selection import train_test_split
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing and helper functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def soundex_encoding(name):
+    return soundex(name)
+
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    
+    # Feature extraction
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+    
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+    
+    soundex_sim = 1.0 if soundex_encoding(name1) == soundex_encoding(name2) else 0.0
+    
+    # Feature list to be used by ML model
+    return [phonetic_sim, levenshtein_sim, jaro_winkler_sim, cosine_sim, soundex_sim]
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(generate_features(name1, name2))
+    y.append(label)
+
+# Split data into training and test sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train the ML model
+ml_model = RandomForestClassifier(n_estimators=100, random_state=42)
+ml_model.fit(X_train, y_train)
+
+# Rule-Based Similarity Function
+def calculate_similarities(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    
+    # Similarity calculations
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+    soundex_sim = 1.0 if soundex_encoding(name1) == soundex_encoding(name2) else 0.0
+    
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    # Weighted combination of similarities
+    weighted_score = (0.3 * phonetic_sim +
+                      0.3 * levenshtein_sim +
+                      0.4 * jaro_winkler_sim +
+                      0.4 * cosine_sim +
+                      0.2 * soundex_sim)
+    return weighted_score
+
+def rule_based_predict(name1, name2, threshold=0.6):
+    score = calculate_similarities(name1, name2)
+    return 1 if score >= threshold else 0
+
+# Ensemble Prediction Function
+def ensemble_predict(name1, name2, threshold=0.6):
+    # Rule-based prediction
+    rule_based_pred = rule_based_predict(name1, name2, threshold)
+    
+    # ML prediction
+    features = generate_features(name1, name2)
+    ml_pred = ml_model.predict([features])[0]
+    
+    # Combine using OR logic for ensemble
+    final_pred = 1 if rule_based_pred == 1 or ml_pred == 1 else 0
+    return final_pred
+
+# Evaluate Ensemble Model
+def evaluate_model(data):
+    predictions = []
+    for _, row in data.iterrows():
+        name1, name2, label = row['Name1'], row['Name2'], row['Label']
+        pred = ensemble_predict(name1, name2)
+        predictions.append((label, pred))
+    
+    # Extract true and predicted labels
+    y_true = [label for label, pred in predictions]
+    y_pred = [pred for label, pred in predictions]
+    
+    # Calculate metrics
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred)
+    recall = recall_score(y_true, y_pred)
+    
+    print("Ensemble Model Performance:")
+    print(f"Accuracy: {accuracy:.2f}")
+    print(f"Precision: {precision:.2f}")
+    print(f"Recall: {recall:.2f}")
+
+# Run evaluation
+evaluate_model(data)
