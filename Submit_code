@@ -1,0 +1,364 @@
+========================================== Ml Approach ======================================
+
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.model_selection import train_test_split
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+# Feature extraction function
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    features = {
+        'phonetic_sim': fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0,
+        'levenshtein_sim': fuzz.ratio(name1, name2) / 100.0,
+        'jaro_winkler_sim': fuzz.token_sort_ratio(name1, name2) / 100.0,
+        'cosine_sim': cosine_similarity(
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[0:1],
+            CountVectorizer(analyzer='char', ngram_range=(2, 3)).fit_transform([name1, name2])[1:2])[0][0]
+    }
+    return list(features.values())
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(generate_features(name1, name2))
+    y.append(label)
+
+# Split data into training (80%) and remaining (20%) sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+# Print dataset sizes
+print(f"Training set size: {len(X_train)}")
+print(f"Testing set size: {len(X_test)}")
+
+# Train classifier on the training dataset
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train, y_train)
+
+# Evaluate on testing set
+y_test_pred = clf.predict(X_test)
+accuracy= accuracy_score(y_test, y_test_pred)
+precision = precision_score(y_test, y_test_pred)
+recall = recall_score(y_test, y_test_pred)
+
+# Print metrics
+print("Machine Learning Approach Performance:")
+print(f"Accuracy: {100 * round(accuracy,2)}%")
+print(f"Precision: {100 * round(precision,2)}%")
+print(f"Recall: {100 * round(recall,2)}%")
+
+=========================================================  rule based approach =======================================
+
+import pandas as pd
+import numpy as np
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# List of common titles and honorifics to ignore
+titles = {'dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 
+    'captain', 'major', 'colonel', 'lieutenant', 'sergeant', 'private',
+    'general', 'admiral', 'reverend', 'father', 'pastor', 'bishop', 
+    'archbishop', 'pope', 'imam', 'rabbi', 'minister', 'deacon', 
+    'cardinal', 'shah', 'sultan', 'emir', 'maharaja', 'maharani', 
+    'raja', 'rani', 'attorney', 'esq', 'counsel', 'solicitor', 'architect', 
+    'engineer', 'director', 'ceo', 'president', 'vice president', 'manager', 
+    'hon.', 'jr.', 'sr.', 'ii', 'iii', 'iv', 'gentleman', 'master', 
+    'count', 'baron', 'countess', 'duke', 'duchess', 'prince', 'princess',
+    'king', 'queen', 'emperor', 'empress', 'dame', 'lord', 'baroness', 
+    'mr.', 'mrs.', 'ms.', 'prof.', 'md', 'jd', 'mba', 'msc', 'bsc', 
+    'dsc', 'edd', 'lld', 'llm', 'barrister', 'esquire', 'master', 
+    'lieutenant colonel', 'brigadier general', 'major general', 'rear admiral', 
+    'commander', 'capt.', 'sergeant major'}
+
+# Preprocessing functions
+def normalize_name(name):
+    return str(name).lower().replace(".", "").replace("-", "").replace(",", "").strip()
+
+def remove_titles(name):
+    parts = normalize_name(name).split()
+    return ' '.join(part for part in parts if part not in titles)
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def soundex_encoding(name):
+    return soundex(name)
+
+def extract_initials(name):
+    parts = name.split()
+    return [part[0] for part in parts]
+
+def initials_match(name1, name2):
+    initials1 = set(extract_initials(name1))
+    initials2 = set(extract_initials(name2))
+    return initials1 == initials2
+
+def approximate_nickname_match(name1, name2):
+    if len(name1) < len(name2):
+        shorter, longer = name1, name2
+    else:
+        shorter, longer = name2, name1
+
+    start_match = fuzz.partial_ratio(shorter, longer) >= 60
+    phonetic_match = phonetic_encoding(shorter) == phonetic_encoding(longer[:len(shorter)])
+    return start_match or phonetic_match
+
+def has_common_components(name1, name2):
+    components1 = set(name1.split())
+    components2 = set(name2.split())
+    return components1.issubset(components2) or components2.issubset(components1)
+
+# Similarity functions
+def calculate_similarities(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    name1_no_titles = remove_titles(name1)
+    name2_no_titles = remove_titles(name2)
+
+    # Early return for strong matches
+    if initials_match(name1_no_titles, name2_no_titles):
+        return 1.0
+    if approximate_nickname_match(name1_no_titles, name2_no_titles):
+        return 1.0
+    if has_common_components(name1_no_titles, name2_no_titles):
+        return 0.9
+    if sorted(name1_no_titles.split()) == sorted(name2_no_titles.split()):
+        return 0.9
+
+    # Calculate various similarity scores
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1_no_titles), phonetic_encoding(name2_no_titles)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1_no_titles, name2_no_titles) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1_no_titles, name2_no_titles) / 100.0
+    soundex_sim = 1.0 if soundex_encoding(name1_no_titles) == soundex_encoding(name2_no_titles) else 0.0
+
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1_no_titles, name2_no_titles])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    def jaccard_similarity(name1, name2):
+        set1, set2 = set(name1.split()), set(name2.split())
+        return len(set1.intersection(set2)) / len(set1.union(set2))
+
+    jaccard_sim = jaccard_similarity(name1_no_titles, name2_no_titles)
+
+    # Weighted score calculation with Soundex similarity included
+    weighted_score = (0.3 * phonetic_sim +
+                      0.3 * levenshtein_sim +
+                      0.4 * jaro_winkler_sim +
+                      0.4 * cosine_sim +
+                      0.1 * jaccard_sim +
+                      0.2 * soundex_sim)
+
+    return weighted_score
+
+# Rule-based matching function
+def rule_based_match_names(data, threshold=0.6):
+    results = []
+    for _, row in data.iterrows():
+        name1, name2 = row['Name1'], row['Name2']
+        score = calculate_similarities(name1, name2)
+        label = 1 if score >= threshold else 0  # 1 for match, 0 for non-match
+        results.append((name1, name2, score, label))
+    results_df = pd.DataFrame(results, columns=["Name1", "Name2", "Similarity Score", "Predicted Label"])
+    return results_df
+
+# Run rule-based matching
+matched_df = rule_based_match_names(data, threshold=0.6)
+matched_df['Actual Label'] = data['Label']  # For comparison with actual labels if available
+
+# Evaluate model performance
+y_true = matched_df['Actual Label']
+y_pred = matched_df['Predicted Label']
+
+accuracy = (y_pred == y_true).mean() * 100
+precision = precision_score(y_true, y_pred)
+recall = recall_score(y_true, y_pred)
+
+print("Rule-Based Approach Performance:")
+print(f"Accuracy: {100 * round(accuracy,2)}%")
+print(f"Precision: {100 * round(precision,2)}%")
+print(f"Recall: {100 * round(recall,2)}%")
+
+====================================================================== hybrid approach ==============================================
+
+
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.model_selection import train_test_split
+from fuzzywuzzy import fuzz
+from metaphone import doublemetaphone
+from jellyfish import soundex
+
+# List of common titles to remove
+titles_to_remove = ['dr', 'mr', 'mrs', 'ms', 'ph.d.', 'professor', 'sir', 'lady', 
+    'captain', 'major', 'colonel', 'lieutenant', 'sergeant', 'private',
+    'general', 'admiral', 'reverend', 'father', 'pastor', 'bishop', 
+    'archbishop', 'pope', 'imam', 'rabbi', 'minister', 'deacon', 
+    'cardinal', 'shah', 'sultan', 'emir', 'maharaja', 'maharani', 
+    'raja', 'rani', 'attorney', 'esq', 'counsel', 'solicitor', 'architect', 
+    'engineer', 'director', 'ceo', 'president', 'vice president', 'manager', 
+    'hon.', 'jr.', 'sr.', 'ii', 'iii', 'iv', 'gentleman', 'master', 
+    'count', 'baron', 'countess', 'duke', 'duchess', 'prince', 'princess',
+    'king', 'queen', 'emperor', 'empress', 'dame', 'lord', 'baroness', 
+    'mr.', 'mrs.', 'ms.', 'prof.', 'md', 'jd', 'mba', 'msc', 'bsc', 
+    'dsc', 'edd', 'lld', 'llm', 'barrister', 'esquire', 'master', 
+    'lieutenant colonel', 'brigadier general', 'major general', 'rear admiral', 
+    'commander', 'capt.', 'sergeant major']
+
+# Load data from Excel
+file_path = 'Mathwizzathon_Entity_Matching_Dataset.xlsx'  # Replace with your Excel file path
+data = pd.read_excel(file_path)
+
+# Preprocessing and helper functions
+def normalize_name(name):
+    """
+    Normalize the name by:
+    - Removing titles like Mr., Dr., etc.
+    - Converting to lowercase.
+    - Removing non-alphabetic characters (e.g., periods, commas).
+    - Stripping any leading or trailing whitespace.
+    """
+    name = str(name).lower().strip()
+    
+    # Remove titles
+    for title in titles_to_remove:
+        name = name.replace(f"{title} ", "")  # Remove title followed by a space
+        name = name.replace(f"{title}.", "")  # Remove title with a period
+    
+    # Remove non-alphabetic characters
+    name = name.replace(".", "").replace("-", "").replace(",", "")
+    
+    return name
+
+def phonetic_encoding(name):
+    encoded = doublemetaphone(name)
+    return encoded[0] if encoded[0] else encoded[1]
+
+def soundex_encoding(name):
+    return soundex(name)
+
+def generate_features(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    
+    # Feature extraction
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+    
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+    
+    soundex_sim = 1.0 if soundex_encoding(name1) == soundex_encoding(name2) else 0.0
+    
+    # Feature list to be used by ML model
+    return [phonetic_sim, levenshtein_sim, jaro_winkler_sim, cosine_sim, soundex_sim]
+
+# Prepare feature matrix and labels
+X = []
+y = []
+for _, row in data.iterrows():
+    name1, name2, label = row['Name1'], row['Name2'], row['Label']
+    X.append(generate_features(name1, name2))
+    y.append(label)
+
+# Split data into training and test sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train the ML model
+ml_model = RandomForestClassifier(n_estimators=100, random_state=42)
+ml_model.fit(X_train, y_train)
+
+# Rule-Based Similarity Function
+def calculate_similarities(name1, name2):
+    name1, name2 = normalize_name(name1), normalize_name(name2)
+    
+    # Similarity calculations
+    phonetic_sim = fuzz.ratio(phonetic_encoding(name1), phonetic_encoding(name2)) / 100.0
+    levenshtein_sim = fuzz.ratio(name1, name2) / 100.0
+    jaro_winkler_sim = fuzz.token_sort_ratio(name1, name2) / 100.0
+    soundex_sim = 1.0 if soundex_encoding(name1) == soundex_encoding(name2) else 0.0
+    
+    vectorizer = CountVectorizer(analyzer='char', ngram_range=(2, 3))
+    ngram_matrix = vectorizer.fit_transform([name1, name2])
+    cosine_sim = cosine_similarity(ngram_matrix[0:1], ngram_matrix[1:2])[0][0]
+
+    # Weighted combination of similarities
+    weighted_score = (0.3 * phonetic_sim +
+                      0.3 * levenshtein_sim +
+                      0.4 * jaro_winkler_sim +
+                      0.4 * cosine_sim +
+                      0.2 * soundex_sim)
+    return weighted_score
+
+def rule_based_predict(name1, name2, threshold=0.6):
+    score = calculate_similarities(name1, name2)
+    return 1 if score >= threshold else 0
+
+# Ensemble Prediction Function
+def ensemble_predict(name1, name2, threshold=0.6):
+    # Rule-based prediction
+    rule_based_pred = rule_based_predict(name1, name2, threshold)
+    
+    # ML prediction
+    features = generate_features(name1, name2)
+    ml_pred = ml_model.predict([features])[0]
+    
+    # Combine using OR logic for ensemble
+    final_pred = 1 if rule_based_pred == 1 or ml_pred == 1 else 0
+    return final_pred
+
+# Evaluate Ensemble Model
+def evaluate_model(data):
+    predictions = []
+    for _, row in data.iterrows():
+        name1, name2, label = row['Name1'], row['Name2'], row['Label']
+        pred = ensemble_predict(name1, name2)
+        predictions.append((label, pred))
+    
+    # Extract true and predicted labels
+    y_true = [label for label, pred in predictions]
+    y_pred = [pred for label, pred in predictions]
+    
+    # Calculate metrics
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred)
+    recall = recall_score(y_true, y_pred)
+    
+    print("Ensemble Model Performance:")
+    print(f"Accuracy: {100 * round(accuracy,2)}%")
+    print(f"Precision: {100 * round(precision,2)}%")
+    print(f"Recall: {100 * round(recall,2)}%")
+
+# Run evaluation
+evaluate_model(data)
