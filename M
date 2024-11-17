@@ -1,32 +1,25 @@
-import os
-import pickle
+file_path = 'random_forest_model.pkl'
 
-def load_model(model_path):
-    """Load a pre-trained model from a pickle file."""
-    try:
-        # Check if the model file exists
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"The model file at '{model_path}' was not found.")
-        
-        # Open the file and load the model
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        
-        print(f"Model loaded successfully from '{model_path}'.")
-        return model
-    
-    except FileNotFoundError as fnf_error:
-        print(f"Error: {fnf_error}")
-        return None  # Return None or you could re-raise the exception if needed
-    
-    except pickle.UnpicklingError as unpickling_error:
-        print(f"Error: Failed to unpickle the model. The file might be corrupted. {unpickling_error}")
-        return None  # Return None or re-raise
-    
-    except Exception as e:
-        print(f"An unexpected error occurred while loading the model: {e}")
-        return None  # Return None or re-raise
+try:
+    # Try to open and load the model
+    with open(file_path, 'rb') as f:
+        ml_model = pickle.load(f)
+    print("Model loaded successfully.")
 
+except FileNotFoundError:
+    print(f"Error: The file '{file_path}' does not exist.")
+
+except PermissionError:
+    print(f"Error: Permission denied while trying to open '{file_path}'.")
+
+except pickle.UnpicklingError:
+    print(f"Error: The file '{file_path}' is not a valid pickle file or it is corrupted.")
+
+except MemoryError:
+    print(f"Error: The file '{file_path}' is too large to load into memory.")
+
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
 
 
 
