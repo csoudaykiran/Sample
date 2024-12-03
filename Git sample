@@ -1,87 +1,36 @@
-import pytest
-from unittest.mock import MagicMock
-from your_module import YourClass, uqs_constants, StatusType  # Replace with the actual class and constants
-from your_module import ResourceAssetCerti  # Replace with actual imports for your classes
-
 @pytest.mark.unit
-@pytest.mark.component
-def test_add_data_to_db_success(mocker):
-    # Mock the required methods and classes
-    mock_resource = mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
+def test_generate_git_token_success(mocker):
+    # Mock environment variables
+    mocker.patch("uqe.common.clients.git_token.os.environ.get", side_effect=lambda key, default=None: {
+        "GIT_APP_PRIVATE_KEY": "mock_key",
+        "GIT_APP_ID": "3023",
+        "GIT_URL": "https://mock_url",
+        "RP_REPO_NAME": "mock_repo"
+    }.get(key, default))
     
-    # Mock the pki_create_response.get method directly
-    mock_pki_create_response = mocker.MagicMock()
-    mock_pki_create_response.get.side_effect = lambda key: {
-        uqs_constants.CERTIFICATE: {
-            uqs_constants.SERIAL_NUMBER: "12345",
-            uqs_constants.SHORT_NAME_CA: "CA123",
-            uqs_constants.COMMON_NAME: "common-name",
-            uqs_constants.EXPIRATION_DATE: "2024-12-31",
-            uqs_constants.REVOCATION_DATE: "2024-01-01",
-            uqs_constants.CERTI_CREATION_DATE: "2024-01-01"
-        },
-        uqs_constants.CERTIFICATE_ID_RESPONSE: "cert-id"
-    }.get(key, None)
+    # Mock private key reading
+    mocker.patch("builtins.open", mocker.mock_open(read_data="mock_private_key"))
     
-    mock_logger = mocker.patch('your_module.pki_client_logger')
+    # Mock GithubIntegration
+    mock_github_integration = mocker.MagicMock()
+    mocker.patch("uqe.common.clients.git_token.GithubIntegration", return_value=mock_github_integration)
     
-    # Example values
-    cluster_id = "cluster-123"
-
-    # Instantiate the class and call the method
-    your_object = YourClass()  # Replace with the actual class instance
-    your_object.add_data_to_db(mock_pki_create_response, cluster_id)
-
-    # Ensure the create_asset_certi method is called with correct data
-    certificate_data_row = {
-        'serial_number': "12345",
-        'short_name_ca': "CA123",
-        'common name': "common-name",
-        'expiration_date': "2024-12-31",
-        'revocation_date': "2024-01-01",
-        'creation_date': "2024-01-01",
-        'resource_uuid': cluster_id,
-        'id': "cert-id",
-        'status': StatusType.CREATED.value,
-        'status_active': True
-    }
-    mock_resource.return_value.create_asset_certi.assert_called_once_with(certificate_data_row)
-
-
-@pytest.mark.unit
-@pytest.mark.component
-def test_add_data_to_db_failure(mocker):
-    # Mock the required methods and classes
-    mock_resource = mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
+    # Mock installation and repository
+    mock_repo = mocker.MagicMock()
+    mock_repo.name = "mock_repo"
+    mock_installation = mocker.MagicMock()
+    mock_installation.id = 123
+    mock_installation.get_repos.return_value = [mock_repo]
+    mock_github_integration.get_installations.return_value = [mock_installation]
     
-    # Mock the pki_create_response.get method directly
-    mock_pki_create_response = mocker.MagicMock()
-    mock_pki_create_response.get.side_effect = lambda key: {
-        uqs_constants.CERTIFICATE: {
-            uqs_constants.SERIAL_NUMBER: "12345",
-            uqs_constants.SHORT_NAME_CA: "CA123",
-            uqs_constants.COMMON_NAME: "common-name",
-            uqs_constants.EXPIRATION_DATE: "2024-12-31",
-            uqs_constants.REVOCATION_DATE: "2024-01-01",
-            uqs_constants.CERTI_CREATION_DATE: "2024-01-01"
-        },
-        uqs_constants.CERTIFICATE_ID_RESPONSE: "cert-id"
-    }.get(key, None)
+    # Mock access token generation
+    mock_access_token = mocker.MagicMock()
+    mock_access_token.token = "mock_access_token"
+    mock_github_integration.get_access_token.return_value = mock_access_token
+    
+    # Generate token
+    git_token = GitToken()
+    token = git_token.generate_git_token(repo_name="mock_repo")
+    
+    assert token == "mock_access_token"
 
-    mock_logger = mocker.patch('your_module.pki_client_logger')
-    mock_resource.return_value.create_asset_certi = MagicMock(side_effect=Exception("DB error"))
-
-    # Example values
-    cluster_id = "cluster-123"
-
-    # Instantiate the class and call the method, expecting an exception
-    with pytest.raises(Exception):
-        your_object = YourClass()  # Replace with the actual class instance
-        your_object.add_data_to_db(mock_pki_create_response, cluster_id)
-
-    # Ensure the logger logs the error
-    mock_logger.error.assert_called_once_with(
-        "Error generated when storing certificate result in DB for cluster ID {0} / certificate ID {1} / Error {2}".format(
-            cluster_id, "cert-id", "DB error"
-        )
-    )
