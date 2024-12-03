@@ -1,56 +1,86 @@
 import pytest
-from unittest import mock
-import time
+from unittest.mock import MagicMock
+from your_module import YourClass, uqs_constants, StatusType  # Replace with the actual class and constants
+from your_module import ResourceAssetCerti  # Replace with actual imports for your classes
 
-# Assuming the custom_retry decorator is in a file called custom_retry.py
-from custom_retry import custom_retry
+@pytest.mark.unit
+@pytest.mark.component
+def test_add_data_to_db_success(mocker):
+    # Mock the required methods and classes
+    mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
+    mocker.patch('your_module.pki_create_response.get', side_effect=lambda key: {
+        uqs_constants.CERTIFICATE: {
+            uqs_constants.SERIAL_NUMBER: "12345",
+            uqs_constants.SHORT_NAME_CA: "CA123",
+            uqs_constants.COMMON_NAME: "common-name",
+            uqs_constants.EXPIRATION_DATE: "2024-12-31",
+            uqs_constants.REVOCATION_DATE: "2024-01-01",
+            uqs_constants.CERTI_CREATION_DATE: "2024-01-01"
+        },
+        uqs_constants.CERTIFICATE_ID_RESPONSE: "cert-id"
+    }.get(key, None))
+    
+    mock_logger = mocker.patch('your_module.pki_client_logger')
+    mock_resource = mocker.patch('your_module.ResourceAssetCerti')
+    mock_resource.return_value.create_asset_certi = MagicMock()
 
-# Mock function for testing
-def mock_func(success=True):
-    if not success:
-        return False
-    return True
+    # Example values
+    pki_create_response = MagicMock()
+    cluster_id = "cluster-123"
 
-# Test the decorator with mock_func
-def test_custom_retry_success():
-    # Test if the function succeeds on the first try (no retries)
-    @custom_retry(max_retries=3, time_gap=1)
-    def decorated_func():
-        return mock_func(success=True)
-    
-    result = decorated_func()
-    
-    # Ensure the result is True since the function should succeed
-    assert result is True
+    # Instantiate the class and call the method
+    your_object = YourClass()  # Replace with the actual class instance
+    your_object.add_data_to_db(pki_create_response, cluster_id)
 
-def test_custom_retry_failure():
-    # Test if the function retries correctly and eventually fails
-    @custom_retry(max_retries=3, time_gap=1)
-    def decorated_func():
-        return mock_func(success=False)
-    
-    result = decorated_func()
-    
-    # Ensure the result is False after max_retries have been exceeded
-    assert result is False
+    # Ensure the create_asset_certi method is called with correct data
+    certificate_data_row = {
+        'serial_number': "12345",
+        'short_name_ca': "CA123",
+        'common name': "common-name",
+        'expiration_date': "2024-12-31",
+        'revocation_date': "2024-01-01",
+        'creation_date': "2024-01-01",
+        'resource_uuid': cluster_id,
+        'id': "cert-id",
+        'status': StatusType.CREATED.value,
+        'status_active': True
+    }
+    mock_resource.return_value.create_asset_certi.assert_called_once_with(certificate_data_row)
 
-def test_custom_retry_retries():
-    # Test if the function retries the expected number of times
-    @custom_retry(max_retries=3, time_gap=1)
-    def decorated_func():
-        return mock_func(success=False)
-    
-    # Use mock to ensure time.sleep is called during retries
-    with mock.patch('time.sleep') as mock_sleep:
-        decorated_func()
-        # Ensure time.sleep was called the correct number of times
-        assert mock_sleep.call_count == 3
 
-def test_custom_retry_max_retries():
-    # Test if max_retries is respected (the function retries the correct number of times)
-    @custom_retry(max_retries=2, time_gap=1)
-    def decorated_func():
-        return mock_func(success=False)
+@pytest.mark.unit
+@pytest.mark.component
+def test_add_data_to_db_failure(mocker):
+    # Mock the required methods and classes
+    mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
+    mocker.patch('your_module.pki_create_response.get', side_effect=lambda key: {
+        uqs_constants.CERTIFICATE: {
+            uqs_constants.SERIAL_NUMBER: "12345",
+            uqs_constants.SHORT_NAME_CA: "CA123",
+            uqs_constants.COMMON_NAME: "common-name",
+            uqs_constants.EXPIRATION_DATE: "2024-12-31",
+            uqs_constants.REVOCATION_DATE: "2024-01-01",
+            uqs_constants.CERTI_CREATION_DATE: "2024-01-01"
+        },
+        uqs_constants.CERTIFICATE_ID_RESPONSE: "cert-id"
+    }.get(key, None))
     
-    result = decorated_func()
-    assert result is False  # Should return False after 2 retries
+    mock_logger = mocker.patch('your_module.pki_client_logger')
+    mock_resource = mocker.patch('your_module.ResourceAssetCerti')
+    mock_resource.return_value.create_asset_certi = MagicMock(side_effect=Exception("DB error"))
+
+    # Example values
+    pki_create_response = MagicMock()
+    cluster_id = "cluster-123"
+
+    # Instantiate the class and call the method, expecting an exception
+    with pytest.raises(Exception):
+        your_object = YourClass()  # Replace with the actual class instance
+        your_object.add_data_to_db(pki_create_response, cluster_id)
+
+    # Ensure the logger logs the error
+    mock_logger.error.assert_called_once_with(
+        "Error generated when storing certificate result in DB for cluster ID {0} / certificate ID {1} / Error {2}".format(
+            cluster_id, "cert-id", "DB error"
+        )
+    )
