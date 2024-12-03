@@ -1,35 +1,69 @@
-@pytest.mark.unit
-@pytest.mark.component
-def test_format_db_connection_string_worker_true(mocker):
-    # Set environment variables for testing
-    mocker.patch.dict(os.environ, {
-        "POSTGRES_USER": "user",
-        "POSTGRES_PWD": "password",
-        "POSTGRES_API_DB": "api_db",
+import pytest
+import os
+from unittest import mock
+from urllib.parse import quote
+
+# Assuming your function is in a module called db_utils
+from your_module import format_db_connection_string
+
+@pytest.fixture
+def mock_env_vars():
+    # Mocking environment variables before each test
+    mock_env = {
+        "POSTGRES_USER": "testuser",
+        "POSTGRES_PWD": "testpassword",
+        "POSTGRES_API_DB": "testdb",
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432"
-    })
+    }
+    with mock.patch.dict(os.environ, mock_env):
+        yield mock_env
 
-    config = {}
-    result = database_manager.DatabaseManager.format_db_connection_string(config, worker=True)
-
-    # Verify if the connection string is formed correctly for worker
-    assert result == 'postgresql://user:password@localhost:5432/api_db'  # Adjust this as per the actual implementation
-
-@pytest.mark.unit
-@pytest.mark.component
-def test_format_db_connection_string_worker_false(mocker):
-    # Set environment variables for testing
-    mocker.patch.dict(os.environ, {
-        "POSTGRES_USER": "user",
-        "POSTGRES_PWD": "password",
-        "POSTGRES_API_DB": "api_db",
+@pytest.fixture
+def mock_worker_env_vars():
+    # Mocking environment variables with worker database info
+    mock_env = {
+        "POSTGRES_USER": "testuser",
+        "POSTGRES_PWD": "testpassword",
+        "POSTGRES_API_WORKER_DB": "workerdb",
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432"
-    })
+    }
+    with mock.patch.dict(os.environ, mock_env):
+        yield mock_env
 
+def test_format_db_connection_string(mock_env_vars):
     config = {}
-    result = database_manager.DatabaseManager.format_db_connection_string(config, worker=False)
 
-    # Verify if the connection string is formed correctly for non-worker
-    assert result == 'postgresql://user:password@localhost:5432/api_db'  # Adjust this as per the actual implementation
+    # Case where SQLALCHEMY_DATABASE_URI is not in the environment
+    format_db_connection_string(config)
+
+    expected_uri = "postgresql://testuser:testpassword@localhost:5432/testdb"
+    assert config['SQLALCHEMY_DATABASE_URI'] == expected_uri
+
+def test_format_db_connection_string_worker(mock_worker_env_vars):
+    config = {}
+
+    # Case where worker=True, and using the worker database
+    format_db_connection_string(config, worker=True)
+
+    expected_worker_uri = "postgresql://testuser:testpassword@localhost:5432/workerdb"
+    assert config['SQLALCHEMY_DATABASE_WORKER_URI'] == expected_worker_uri
+
+def test_format_db_connection_string_with_existing_uri(mock_env_vars):
+    config = {}
+
+    # Mock SQLALCHEMY_DATABASE_URI in environment
+    with mock.patch.dict(os.environ, {"SQLALCHEMY_DATABASE_URI": "postgresql://customuri"}):
+        format_db_connection_string(config)
+
+    assert config['SQLALCHEMY_DATABASE_URI'] == "postgresql://customuri"
+
+def test_format_db_connection_string_with_worker_and_existing_uri(mock_worker_env_vars):
+    config = {}
+
+    # Mock SQLALCHEMY_DATABASE_URI in environment
+    with mock.patch.dict(os.environ, {"SQLALCHEMY_DATABASE_URI": "postgresql://customuri"}):
+        format_db_connection_string(config, worker=True)
+
+    assert config['SQLALCHEMY_DATABASE_WORKER_URI'] == "postgresql://customuri"
