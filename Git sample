@@ -1,29 +1,56 @@
-@pytest.mark.unit
-def test_generate_git_token(mocker):
-    mocker.patch("uge.common.clients.git_token.git_logger", return_value="")
-    
-    # Mock the GithubIntegration object and its methods
-    mock_github_integration = mocker.MagicMock()
-    mock_installation = mocker.MagicMock()
-    mock_repo = mocker.MagicMock()
-    
-    # Simulate an installation and repo
-    mock_repo.name.lower.return_value = "ugs-rp-scripts"
-    mock_installation.get_repos.return_value = [mock_repo]
-    mock_github_integration.get_installations.return_value = [mock_installation]
-    
-    # Mock the `get_access_token` method to return a mocked token
-    mock_access_token = mocker.MagicMock()
-    mock_access_token.token = "mock_token"
-    mock_github_integration.get_access_token.return_value = mock_access_token
-    
-    # Patch GithubIntegration with the mocked object
-    mocker.patch("uqe.common.clients.git_token.GithubIntegration", return_value=mock_github_integration)
-    
-    # Mock the read_private_key function to return a mock key
-    mocker.patch("uqe.common.clients.git_token.read_private_key", return_value="mock_key")
+import pytest
+from unittest import mock
+import time
 
-    # Run the function and check the token is returned
-    token = GitToken().generate_git_token()
+# Assuming the custom_retry decorator is in a file called custom_retry.py
+from custom_retry import custom_retry
+
+# Mock function for testing
+def mock_func(success=True):
+    if not success:
+        return False
+    return True
+
+# Test the decorator with mock_func
+def test_custom_retry_success():
+    # Test if the function succeeds on the first try (no retries)
+    @custom_retry(max_retries=3, time_gap=1)
+    def decorated_func():
+        return mock_func(success=True)
     
-    assert token == "mock_token"
+    result = decorated_func()
+    
+    # Ensure the result is True since the function should succeed
+    assert result is True
+
+def test_custom_retry_failure():
+    # Test if the function retries correctly and eventually fails
+    @custom_retry(max_retries=3, time_gap=1)
+    def decorated_func():
+        return mock_func(success=False)
+    
+    result = decorated_func()
+    
+    # Ensure the result is False after max_retries have been exceeded
+    assert result is False
+
+def test_custom_retry_retries():
+    # Test if the function retries the expected number of times
+    @custom_retry(max_retries=3, time_gap=1)
+    def decorated_func():
+        return mock_func(success=False)
+    
+    # Use mock to ensure time.sleep is called during retries
+    with mock.patch('time.sleep') as mock_sleep:
+        decorated_func()
+        # Ensure time.sleep was called the correct number of times
+        assert mock_sleep.call_count == 3
+
+def test_custom_retry_max_retries():
+    # Test if max_retries is respected (the function retries the correct number of times)
+    @custom_retry(max_retries=2, time_gap=1)
+    def decorated_func():
+        return mock_func(success=False)
+    
+    result = decorated_func()
+    assert result is False  # Should return False after 2 retries
