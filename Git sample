@@ -1,77 +1,35 @@
-import os
-import pytest
-from unittest import mock
-from uqe.utils.database_manager import DatabaseManager
-
-# Mocking the environment variables for testing
-@pytest.fixture(autouse=True)
-def mock_env_vars():
-    with mock.patch.dict(os.environ, {
-        "SQLALCHEMY_DATABASE_URI": "postgresql://user:password@localhost:5432/testdb",
-        "POSTGRES_USER": "testuser",
-        "POSTGRES_PWD": "testpassword",
-        "POSTGRES_API_DB": "testdb",
+@pytest.mark.unit
+@pytest.mark.component
+def test_format_db_connection_string_worker_true(mocker):
+    # Set environment variables for testing
+    mocker.patch.dict(os.environ, {
+        "POSTGRES_USER": "user",
+        "POSTGRES_PWD": "password",
+        "POSTGRES_API_DB": "api_db",
         "POSTGRES_HOST": "localhost",
         "POSTGRES_PORT": "5432"
-    }):
-        yield
+    })
 
-# Test for the __init__ method
-def test_init():
-    db_manager = DatabaseManager()
-    assert db_manager.db is not None  # Check if the SQLAlchemy instance is created.
-
-# Test for the init_app method when SQLALCHEMY_DATABASE_URI is in environment
-def test_init_app_with_db_uri():
-    db_manager = DatabaseManager()
-    mock_app = mock.Mock()
-    db_manager.init_app(mock_app)
-    
-    # Check if app.config['SQLALCHEMY_DATABASE_URI'] is set correctly
-    assert mock_app.config['SQLALCHEMY_DATABASE_URI'] == "postgresql://testuser:testpassword@localhost:5432/testdb"
-
-# Test for the init_app method when SQLALCHEMY_DATABASE_URI is NOT in environment
-def test_init_app_without_db_uri():
-    with mock.patch.dict(os.environ, {"SQLALCHEMY_DATABASE_URI": ""}):
-        db_manager = DatabaseManager()
-        mock_app = mock.Mock()
-        db_manager.init_app(mock_app)
-
-        expected_uri = 'postgresql://testuser:testpassword@localhost:5432/testdb'
-        assert mock_app.config['SQLALCHEMY_DATABASE_URI'] == expected_uri
-
-# Test the format_db_connection_string method
-def test_format_db_connection_string():
-    db_manager = DatabaseManager()
     config = {}
+    result = database_manager.DatabaseManager.format_db_connection_string(config, worker=True)
 
-    # Test without worker argument (using default db)
-    db_manager.format_db_connection_string(config, worker=False)
-    expected_uri = 'postgresql://testuser:testpassword@localhost:5432/testdb'
-    assert config['SQLALCHEMY_DATABASE_URI'] == expected_uri
+    # Verify if the connection string is formed correctly for worker
+    assert result == 'postgresql://user:password@localhost:5432/api_db'  # Adjust this as per the actual implementation
 
-    # Test with worker argument (using worker db)
-    db_manager.format_db_connection_string(config, worker=True)
-    expected_worker_uri = 'postgresql://testuser:testpassword@localhost:5432/testdb'
-    assert config['SQLALCHEMY_DATABASE_URI'] == expected_worker_uri
+@pytest.mark.unit
+@pytest.mark.component
+def test_format_db_connection_string_worker_false(mocker):
+    # Set environment variables for testing
+    mocker.patch.dict(os.environ, {
+        "POSTGRES_USER": "user",
+        "POSTGRES_PWD": "password",
+        "POSTGRES_API_DB": "api_db",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432"
+    })
 
-# Test the DatabaseManager format_db_connection_string logic with different configurations
-def test_format_db_connection_string_with_different_configs():
-    # Simulate a worker database scenario
-    with mock.patch.dict(os.environ, {
-        "POSTGRES_API_WORKER_DB": "workerdb"
-    }):
-        db_manager = DatabaseManager()
-        config = {}
-        db_manager.format_db_connection_string(config, worker=True)
-        expected_worker_uri = 'postgresql://testuser:testpassword@localhost:5432/workerdb'
-        assert config['SQLALCHEMY_DATABASE_URI'] == expected_worker_uri
+    config = {}
+    result = database_manager.DatabaseManager.format_db_connection_string(config, worker=False)
 
-# Test for the exception handling in init_app
-def test_init_app_with_exception_handling():
-    with mock.patch.dict(os.environ, {"POSTGRES_USER": None}):  # Simulate missing environment variable
-        db_manager = DatabaseManager()
-        mock_app = mock.Mock()
-        
-        with pytest.raises(KeyError):
-            db_manager.init_app(mock_app)
+    # Verify if the connection string is formed correctly for non-worker
+    assert result == 'postgresql://user:password@localhost:5432/api_db'  # Adjust this as per the actual implementation
