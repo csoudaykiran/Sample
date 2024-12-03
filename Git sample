@@ -1,79 +1,77 @@
+import os
 import pytest
 from unittest import mock
-from uqe.common.clients.pki_client import PKIClient
-from uqe.constants import uqs_constants
-from uqe.models.resource_asset_certi import ResourceAssetCerti
-from uqe.logger import pki_client_logger
-from uqe.models.status_type import StatusType
+from uqe.utils.database_manager import DatabaseManager
 
+# Mocking the environment variables for testing
+@pytest.fixture(autouse=True)
+def mock_env_vars():
+    with mock.patch.dict(os.environ, {
+        "SQLALCHEMY_DATABASE_URI": "postgresql://user:password@localhost:5432/testdb",
+        "POSTGRES_USER": "testuser",
+        "POSTGRES_PWD": "testpassword",
+        "POSTGRES_API_DB": "testdb",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432"
+    }):
+        yield
 
-@pytest.fixture
-def mock_pki_create_response():
-    # Mock the pki_create_response dictionary
-    response = {
-        uqs_constants.CERTIFICATE: {
-            uqs_constants.SERIAL_NUMBER: '12345',
-            uqs_constants.SHORT_NAME_CA: 'TestCA',
-            uqs_constants.COMMON_NAME: 'test_common_name',
-            uqs_constants.EXPIRATION_DATE: '2025-01-01',
-            uqs_constants.REVOCATION_DATE: '2024-01-01',
-            uqs_constants.CERTI_CREATION_DATE: '2023-01-01',
-        },
-        uqs_constants.CERTIFICATE_ID_RESPONSE: 'cert_id_123'
-    }
-    return response
+# Test for the __init__ method
+def test_init():
+    db_manager = DatabaseManager()
+    assert db_manager.db is not None  # Check if the SQLAlchemy instance is created.
 
+# Test for the init_app method when SQLALCHEMY_DATABASE_URI is in environment
+def test_init_app_with_db_uri():
+    db_manager = DatabaseManager()
+    mock_app = mock.Mock()
+    db_manager.init_app(mock_app)
+    
+    # Check if app.config['SQLALCHEMY_DATABASE_URI'] is set correctly
+    assert mock_app.config['SQLALCHEMY_DATABASE_URI'] == "postgresql://testuser:testpassword@localhost:5432/testdb"
 
-@pytest.fixture
-def mock_resource_asset_certi():
-    return mock.Mock(spec=ResourceAssetCerti)
+# Test for the init_app method when SQLALCHEMY_DATABASE_URI is NOT in environment
+def test_init_app_without_db_uri():
+    with mock.patch.dict(os.environ, {"SQLALCHEMY_DATABASE_URI": ""}):
+        db_manager = DatabaseManager()
+        mock_app = mock.Mock()
+        db_manager.init_app(mock_app)
 
+        expected_uri = 'postgresql://testuser:testpassword@localhost:5432/testdb'
+        assert mock_app.config['SQLALCHEMY_DATABASE_URI'] == expected_uri
 
-@pytest.fixture
-def mock_pki_client(mock_resource_asset_certi):
-    # Create an instance of PKIClient and mock the ResourceAssetCerti().create_asset_certi method
-    client = PKIClient()
-    client.create_asset_certi = mock_resource_asset_certi.create_asset_certi
-    return client
+# Test the format_db_connection_string method
+def test_format_db_connection_string():
+    db_manager = DatabaseManager()
+    config = {}
 
+    # Test without worker argument (using default db)
+    db_manager.format_db_connection_string(config, worker=False)
+    expected_uri = 'postgresql://testuser:testpassword@localhost:5432/testdb'
+    assert config['SQLALCHEMY_DATABASE_URI'] == expected_uri
 
-def test_add_data_to_db_success(mock_pki_client, mock_pki_create_response, mock_resource_asset_certi):
-    # Mock the create_asset_certi method to do nothing
-    mock_resource_asset_certi.create_asset_certi.return_value = None
+    # Test with worker argument (using worker db)
+    db_manager.format_db_connection_string(config, worker=True)
+    expected_worker_uri = 'postgresql://testuser:testpassword@localhost:5432/testdb'
+    assert config['SQLALCHEMY_DATABASE_URI'] == expected_worker_uri
 
-    # Call the add_data_to_db method with valid data
-    cluster_id = 'cluster_123'
-    active = True
-    mock_pki_client.add_data_to_db(mock_pki_create_response, cluster_id, active)
+# Test the DatabaseManager format_db_connection_string logic with different configurations
+def test_format_db_connection_string_with_different_configs():
+    # Simulate a worker database scenario
+    with mock.patch.dict(os.environ, {
+        "POSTGRES_API_WORKER_DB": "workerdb"
+    }):
+        db_manager = DatabaseManager()
+        config = {}
+        db_manager.format_db_connection_string(config, worker=True)
+        expected_worker_uri = 'postgresql://testuser:testpassword@localhost:5432/workerdb'
+        assert config['SQLALCHEMY_DATABASE_URI'] == expected_worker_uri
 
-    # Check if create_asset_certi was called with the expected data
-    certificate_data_row = {
-        'serial_number': '12345',
-        'short_name_ca': 'TestCA',
-        'common_name': 'test_common_name',
-        'expiration_date': '2025-01-01',
-        'revocation_date': '2024-01-01',
-        uqs_constants.CREATION_DATE: '2023-01-01',
-        uqs_constants.RESOURCE_UUID: 'cluster_123',
-        uqs_constants.ID: 'cert_id_123',
-        uqs_constants.STATUS: StatusType.CREATED.value,
-        uqs_constants.STATUS_ACTIVE.lower(): True
-    }
-    mock_resource_asset_certi.create_asset_certi.assert_called_once_with(certificate_data_row)
-
-
-def test_add_data_to_db_exception(mock_pki_client, mock_pki_create_response, mock_resource_asset_certi):
-    # Simulate an exception when calling create_asset_certi
-    mock_resource_asset_certi.create_asset_certi.side_effect = Exception("Database error")
-
-    # Mock the logger to check if it logs the error correctly
-    with mock.patch.object(pki_client_logger, 'error') as mock_error_logger:
-        cluster_id = 'cluster_123'
-        active = True
-        with pytest.raises(Exception):  # We expect the error to be raised again
-            mock_pki_client.add_data_to_db(mock_pki_create_response, cluster_id, active)
-
-        # Check if the error logger was called
-        mock_error_logger.assert_called_once_with(
-            "Error generated when storing certificate result in DB for cluster ID (cluster_123) / certificate ID cert_id_123 / Error Database error"
-        )
+# Test for the exception handling in init_app
+def test_init_app_with_exception_handling():
+    with mock.patch.dict(os.environ, {"POSTGRES_USER": None}):  # Simulate missing environment variable
+        db_manager = DatabaseManager()
+        mock_app = mock.Mock()
+        
+        with pytest.raises(KeyError):
+            db_manager.init_app(mock_app)
