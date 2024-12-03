@@ -7,8 +7,11 @@ from your_module import ResourceAssetCerti  # Replace with actual imports for yo
 @pytest.mark.component
 def test_add_data_to_db_success(mocker):
     # Mock the required methods and classes
-    mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
-    mocker.patch('your_module.pki_create_response.get', side_effect=lambda key: {
+    mock_resource = mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
+    
+    # Mock the pki_create_response.get method directly
+    mock_pki_create_response = mocker.MagicMock()
+    mock_pki_create_response.get.side_effect = lambda key: {
         uqs_constants.CERTIFICATE: {
             uqs_constants.SERIAL_NUMBER: "12345",
             uqs_constants.SHORT_NAME_CA: "CA123",
@@ -18,19 +21,16 @@ def test_add_data_to_db_success(mocker):
             uqs_constants.CERTI_CREATION_DATE: "2024-01-01"
         },
         uqs_constants.CERTIFICATE_ID_RESPONSE: "cert-id"
-    }.get(key, None))
+    }.get(key, None)
     
     mock_logger = mocker.patch('your_module.pki_client_logger')
-    mock_resource = mocker.patch('your_module.ResourceAssetCerti')
-    mock_resource.return_value.create_asset_certi = MagicMock()
-
+    
     # Example values
-    pki_create_response = MagicMock()
     cluster_id = "cluster-123"
 
     # Instantiate the class and call the method
     your_object = YourClass()  # Replace with the actual class instance
-    your_object.add_data_to_db(pki_create_response, cluster_id)
+    your_object.add_data_to_db(mock_pki_create_response, cluster_id)
 
     # Ensure the create_asset_certi method is called with correct data
     certificate_data_row = {
@@ -52,8 +52,11 @@ def test_add_data_to_db_success(mocker):
 @pytest.mark.component
 def test_add_data_to_db_failure(mocker):
     # Mock the required methods and classes
-    mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
-    mocker.patch('your_module.pki_create_response.get', side_effect=lambda key: {
+    mock_resource = mocker.patch('your_module.ResourceAssetCerti', return_value=MagicMock())
+    
+    # Mock the pki_create_response.get method directly
+    mock_pki_create_response = mocker.MagicMock()
+    mock_pki_create_response.get.side_effect = lambda key: {
         uqs_constants.CERTIFICATE: {
             uqs_constants.SERIAL_NUMBER: "12345",
             uqs_constants.SHORT_NAME_CA: "CA123",
@@ -63,20 +66,18 @@ def test_add_data_to_db_failure(mocker):
             uqs_constants.CERTI_CREATION_DATE: "2024-01-01"
         },
         uqs_constants.CERTIFICATE_ID_RESPONSE: "cert-id"
-    }.get(key, None))
-    
+    }.get(key, None)
+
     mock_logger = mocker.patch('your_module.pki_client_logger')
-    mock_resource = mocker.patch('your_module.ResourceAssetCerti')
     mock_resource.return_value.create_asset_certi = MagicMock(side_effect=Exception("DB error"))
 
     # Example values
-    pki_create_response = MagicMock()
     cluster_id = "cluster-123"
 
     # Instantiate the class and call the method, expecting an exception
     with pytest.raises(Exception):
         your_object = YourClass()  # Replace with the actual class instance
-        your_object.add_data_to_db(pki_create_response, cluster_id)
+        your_object.add_data_to_db(mock_pki_create_response, cluster_id)
 
     # Ensure the logger logs the error
     mock_logger.error.assert_called_once_with(
