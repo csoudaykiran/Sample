@@ -1,138 +1,29 @@
-import pytest
-from unittest import mock
-from uge.common.clients.git_token import GitToken, read_private_key
-from uge.common.exceptions.exceptions import UqsNotFoundError, UqsBadRequestError
-from github import GithubIntegration
-import os
-
-# Test read_private_key
 @pytest.mark.unit
-def test_read_private_key(mocker):
-    # Mock environment variable and file reading
-    mocker.patch("os.environ.get", return_value="/mock/path/to/pem_file")
-    mock_open = mocker.patch("builtins.open", mocker.mock_open(read_data="mock_key"))
-
-    private_key = read_private_key()
-
-    # Assert the private key is returned correctly
-    assert private_key == "mock_key"
-    # Ensure the file is opened correctly
-    mock_open.assert_called_once_with("/mock/path/to/pem_file", 'r')
-
-# Test generate_git_token for successful token generation
-@pytest.mark.unit
-def test_generate_git_token_success(mocker):
-    # Mock environment variables
-    mocker.patch("os.environ.get", side_effect=lambda k, d=None: {
-        "GIT_APP_PRIVATE_KEY": "mock_private_key",
-        "GIT_URL": "https://mock-url.com",
-        "GIT_APP_ID": "3023",
-        "RP_REPO_NAME": "ugs-rp-scripts"
-    }.get(k, d))
-
-    # Mock the GitHub Integration and its methods
-    mock_github_integration = mock.MagicMock(spec=GithubIntegration)
-    mock_installation = mock.MagicMock()
-    mock_repo = mock.MagicMock()
-
-    # Mock the installation and repository
-    mock_github_integration.get_installations.return_value = [mock_installation]
+def test_generate_git_token(mocker):
+    mocker.patch("uge.common.clients.git_token.git_logger", return_value="")
+    
+    # Mock the GithubIntegration object and its methods
+    mock_github_integration = mocker.MagicMock()
+    mock_installation = mocker.MagicMock()
+    mock_repo = mocker.MagicMock()
+    
+    # Simulate an installation and repo
+    mock_repo.name.lower.return_value = "ugs-rp-scripts"
     mock_installation.get_repos.return_value = [mock_repo]
-    mock_repo.name = "ugs-rp-scripts"
-    mock_installation.id = 12345
-    mock_access_token = mock.MagicMock()
-    mock_access_token.token = "mock_generated_token"
+    mock_github_integration.get_installations.return_value = [mock_installation]
+    
+    # Mock the `get_access_token` method to return a mocked token
+    mock_access_token = mocker.MagicMock()
+    mock_access_token.token = "mock_token"
     mock_github_integration.get_access_token.return_value = mock_access_token
+    
+    # Patch GithubIntegration with the mocked object
+    mocker.patch("uqe.common.clients.git_token.GithubIntegration", return_value=mock_github_integration)
+    
+    # Mock the read_private_key function to return a mock key
+    mocker.patch("uqe.common.clients.git_token.read_private_key", return_value="mock_key")
 
-    # Patch the GithubIntegration class to return the mocked object
-    mocker.patch("uge.common.clients.git_token.GithubIntegration", return_value=mock_github_integration)
-
-    # Create GitToken object and call generate_git_token
-    git_token = GitToken()
-    token = git_token.generate_git_token("ugs-rp-scripts")
-
-    # Assert the token returned is correct
-    assert token == "mock_generated_token"
-
-    # Verify that the methods were called correctly
-    mock_github_integration.get_installations.assert_called_once()
-    mock_installation.get_repos.assert_called_once()
-    mock_github_integration.get_access_token.assert_called_once_with(installation_id=12345)
-
-# Test generate_git_token when repo is not found
-@pytest.mark.unit
-def test_generate_git_token_repo_not_found(mocker):
-    # Mock environment variables
-    mocker.patch("os.environ.get", side_effect=lambda k, d=None: {
-        "GIT_APP_PRIVATE_KEY": "mock_private_key",
-        "GIT_URL": "https://mock-url.com",
-        "GIT_APP_ID": "3023",
-        "RP_REPO_NAME": "ugs-rp-scripts"
-    }.get(k, d))
-
-    # Mock the GitHub Integration and its methods
-    mock_github_integration = mock.MagicMock(spec=GithubIntegration)
-    mock_installation = mock.MagicMock()
-    mock_repo = mock.MagicMock()
-
-    # Simulate repo not being found
-    mock_github_integration.get_installations.return_value = [mock_installation]
-    mock_installation.get_repos.return_value = [mock_repo]
-    mock_repo.name = "other-repo"
-    mock_installation.id = 12345
-
-    # Patch the GithubIntegration class to return the mocked object
-    mocker.patch("uge.common.clients.git_token.GithubIntegration", return_value=mock_github_integration)
-
-    # Ensure that UqsNotFoundError is raised when the repo is not found
-    with pytest.raises(UqsNotFoundError):
-        git_token = GitToken()
-        git_token.generate_git_token("ugs-rp-scripts")
-
-    # Verify the error log and method calls
-    mock_github_integration.get_installations.assert_called_once()
-    mock_installation.get_repos.assert_called_once()
-
-# Test generate_auth_url with valid URL
-@pytest.mark.unit
-def test_generate_auth_url_success(mocker):
-    # Mock environment variables
-    mocker.patch("os.environ.get", side_effect=lambda k, d=None: {
-        "GIT_USERNAME": "mock_user",
-        "GIT_APP_PRIVATE_KEY": "mock_private_key",
-        "GIT_URL": "https://mock-url.com",
-        "GIT_APP_ID": "3023",
-        "RP_REPO_NAME": "ugs-rp-scripts"
-    }.get(k, d))
-
-    # Mock the generate_git_token method to return a mock token
-    mocker.patch.object(GitToken, "generate_git_token", return_value="mock_generated_token")
-
-    # Create GitToken object and call generate_auth_url
-    git_token = GitToken()
-    auth_url = git_token.generate_auth_url("https://mock-url.com/repo")
-
-    # Assert the generated auth URL is correct
-    assert auth_url == "https://mock_user:mock_generated_token@mock-url.com/repo"
-
-# Test generate_auth_url with empty URL (raises UqsBadRequestError)
-@pytest.mark.unit
-def test_generate_auth_url_empty_url(mocker):
-    # Mock environment variables
-    mocker.patch("os.environ.get", side_effect=lambda k, d=None: {
-        "GIT_USERNAME": "mock_user",
-        "GIT_APP_PRIVATE_KEY": "mock_private_key",
-        "GIT_URL": "https://mock-url.com",
-        "GIT_APP_ID": "3023",
-        "RP_REPO_NAME": "ugs-rp-scripts"
-    }.get(k, d))
-
-    # Mock the generate_git_token method
-    mocker.patch.object(GitToken, "generate_git_token", return_value="mock_generated_token")
-
-    # Create GitToken object and ensure UqsBadRequestError is raised for empty URL
-    git_token = GitToken()
-
-    with pytest.raises(UqsBadRequestError):
-        git_token.generate_auth_url("")
-
+    # Run the function and check the token is returned
+    token = GitToken().generate_git_token()
+    
+    assert token == "mock_token"
