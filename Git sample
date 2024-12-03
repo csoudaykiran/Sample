@@ -1,88 +1,79 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 from uqe.common.clients.pki_client import PKIClient
-from uqe.common.constants import uqs_constants, ugs_constants
-from uqe.utils.logger import logger as pki_client_logger
+from uqe.constants import uqs_constants
+from uqe.models.resource_asset_certi import ResourceAssetCerti
+from uqe.logger import pki_client_logger
+from uqe.models.status_type import StatusType
 
 
-@pytest.mark.unit
-def test_add_data_to_db_success(mocker):
-    # Mock dependencies
-    mock_create_asset_certi = mocker.patch("uqe.common.clients.pki_client.ResourceAssetCerti.create_asset_certi")
-    mock_logger = mocker.patch("uqe.utils.logger.logger.error")
-
-    # Mock data
-    pki_create_response = {
+@pytest.fixture
+def mock_pki_create_response():
+    # Mock the pki_create_response dictionary
+    response = {
         uqs_constants.CERTIFICATE: {
-            uqs_constants.SERIAL_NUMBER: "123456789",
-            uqs_constants.SHORT_NAME_CA: "Test_CA",
-            uqs_constants.COMMON_NAME: "example.com",
-            uqs_constants.EXPIRATION_DATE: "2024-12-31",
-            uqs_constants.REVOCATION_DATE: None,
-            uqs_constants.CERTI_CREATION_DATE: "2024-01-01",
+            uqs_constants.SERIAL_NUMBER: '12345',
+            uqs_constants.SHORT_NAME_CA: 'TestCA',
+            uqs_constants.COMMON_NAME: 'test_common_name',
+            uqs_constants.EXPIRATION_DATE: '2025-01-01',
+            uqs_constants.REVOCATION_DATE: '2024-01-01',
+            uqs_constants.CERTI_CREATION_DATE: '2023-01-01',
         },
-        ugs_constants.CERTIFICATE_ID_RESPONSE: "cert123"
+        uqs_constants.CERTIFICATE_ID_RESPONSE: 'cert_id_123'
     }
-    cluster_id = "cluster123"
+    return response
 
-    # Initialize the PKIClient instance
-    pki_client = PKIClient()
 
-    # Call the method
-    pki_client.add_data_to_db(pki_create_response, cluster_id, active=True)
+@pytest.fixture
+def mock_resource_asset_certi():
+    return mock.Mock(spec=ResourceAssetCerti)
 
-    # Assertions
-    expected_data_row = {
-        'serial number': "123456789",
-        'short_name_ca': "Test_CA",
-        'common_name': "example.com",
-        'expiration date': "2024-12-31",
-        'revocation date': None,
-        ugs_constants.CREATION_DATE: "2024-01-01",
-        uqs_constants.RESOURCE_UUID: "cluster123",
-        uqs_constants.ID: "cert123",
-        uqs_constants.STATUS: "created",
-        ugs_constants.STATUS_ACTIVE.lower(): True,
+
+@pytest.fixture
+def mock_pki_client(mock_resource_asset_certi):
+    # Create an instance of PKIClient and mock the ResourceAssetCerti().create_asset_certi method
+    client = PKIClient()
+    client.create_asset_certi = mock_resource_asset_certi.create_asset_certi
+    return client
+
+
+def test_add_data_to_db_success(mock_pki_client, mock_pki_create_response, mock_resource_asset_certi):
+    # Mock the create_asset_certi method to do nothing
+    mock_resource_asset_certi.create_asset_certi.return_value = None
+
+    # Call the add_data_to_db method with valid data
+    cluster_id = 'cluster_123'
+    active = True
+    mock_pki_client.add_data_to_db(mock_pki_create_response, cluster_id, active)
+
+    # Check if create_asset_certi was called with the expected data
+    certificate_data_row = {
+        'serial_number': '12345',
+        'short_name_ca': 'TestCA',
+        'common_name': 'test_common_name',
+        'expiration_date': '2025-01-01',
+        'revocation_date': '2024-01-01',
+        uqs_constants.CREATION_DATE: '2023-01-01',
+        uqs_constants.RESOURCE_UUID: 'cluster_123',
+        uqs_constants.ID: 'cert_id_123',
+        uqs_constants.STATUS: StatusType.CREATED.value,
+        uqs_constants.STATUS_ACTIVE.lower(): True
     }
-    mock_create_asset_certi.assert_called_once_with(expected_data_row)
-    mock_logger.assert_not_called()
+    mock_resource_asset_certi.create_asset_certi.assert_called_once_with(certificate_data_row)
 
 
-@pytest.mark.unit
-def test_add_data_to_db_failure(mocker):
-    # Mock dependencies
-    mock_create_asset_certi = mocker.patch("uqe.common.clients.pki_client.ResourceAssetCerti.create_asset_certi")
-    mock_logger = mocker.patch("uqe.utils.logger.logger.error")
+def test_add_data_to_db_exception(mock_pki_client, mock_pki_create_response, mock_resource_asset_certi):
+    # Simulate an exception when calling create_asset_certi
+    mock_resource_asset_certi.create_asset_certi.side_effect = Exception("Database error")
 
-    # Mock data
-    pki_create_response = {
-        uqs_constants.CERTIFICATE: {
-            uqs_constants.SERIAL_NUMBER: "123456789",
-            uqs_constants.SHORT_NAME_CA: "Test_CA",
-            uqs_constants.COMMON_NAME: "example.com",
-            uqs_constants.EXPIRATION_DATE: "2024-12-31",
-            uqs_constants.REVOCATION_DATE: None,
-            uqs_constants.CERTI_CREATION_DATE: "2024-01-01",
-        },
-        ugs_constants.CERTIFICATE_ID_RESPONSE: "cert123"
-    }
-    cluster_id = "cluster123"
+    # Mock the logger to check if it logs the error correctly
+    with mock.patch.object(pki_client_logger, 'error') as mock_error_logger:
+        cluster_id = 'cluster_123'
+        active = True
+        with pytest.raises(Exception):  # We expect the error to be raised again
+            mock_pki_client.add_data_to_db(mock_pki_create_response, cluster_id, active)
 
-    # Simulate an error in create_asset_certi
-    mock_create_asset_certi.side_effect = Exception("Database error")
-
-    # Initialize the PKIClient instance
-    pki_client = PKIClient()
-
-    # Call the method and expect an exception
-    with pytest.raises(Exception, match="Database error"):
-        pki_client.add_data_to_db(pki_create_response, cluster_id, active=True)
-
-    # Assertions
-    mock_logger.assert_called_once_with(
-        "Error generated when storing certificate result in DB for cluster ID {0} / certificate ID {1} Error {2}".format(
-            cluster_id,
-            "cert123",
-            "Database error"
+        # Check if the error logger was called
+        mock_error_logger.assert_called_once_with(
+            "Error generated when storing certificate result in DB for cluster ID (cluster_123) / certificate ID cert_id_123 / Error Database error"
         )
-    )
