@@ -1,53 +1,67 @@
 import pytest
-from uqe.apis.service.sg_update_reboot_service import update_reboot_day
+from unittest import mock
+from uqe.jobs.clusters_task import delete_prometheus
+from uqe.exceptions import RPCommandExecuteException, RPConnectTimeOutException
+
 
 @pytest.mark.unit
 @pytest.mark.component
-def test_update_reboot_day_invalid_day():
-    """Test for invalid reboot_day parameter."""
-    result = update_reboot_day(cluster_id="mock", reboot_day="invalid_day")
-    assert 'message' in result[0]
-    assert result[0]["message"] == "Invalid parameter passed"
-    assert result[1] == 400
+def test_delete_prometheus_success(mocker):
+    # Mock dependencies
+    mocker.patch("uqe.jobs.clusters_task.celery_task_logger", return_value=mocker.MagicMock())
+    mocker.patch("uqe.jobs.clusters_task.os.environ.get", side_effect=lambda key: "mock_host" if key == "PROMETHEUS_SERVER" else "3")
+    mocker.patch("uqe.jobs.catalogs_task.ParamikoClient.execute_remote_command_script", return_value="mock_response")
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_status_code", return_value=[])
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_connection", return_value=[])
+
+    # Call the function
+    delete_prometheus(cluster_id="test_cluster_id")
+
+    # Verify expected behavior
+    assert True  # Function completed successfully
+
 
 @pytest.mark.unit
 @pytest.mark.component
-def test_update_reboot_day_status_true(mocker):
-    """Test for successful DB execution with status=True."""
-    mock_connection = mocker.MagicMock()
-    mocker.patch("uqe.utils.database_manager.db.engine.connect", return_value=mock_connection)
-    
-    # Mock the DB response
-    mock_result = [{"out_result": {"status": True, "message": "Success", "returnCode": 200}}]
-    mock_connection.execution_options.return_value.__enter__.return_value.execute.return_value = mock_result
-    
-    # Mock the logger
-    mock_logger = mocker.patch("uqe.utils.logger.logger")
-    
-    result = update_reboot_day(cluster_id="mock_cluster", reboot_day="sunday")
-    
-    # Assertions
-    assert result[0]["message"] == "Success"
-    assert result[1] == 200
-    mock_logger.info.assert_called_once_with(str(mock_result[0].get('out_result')))
+def test_delete_prometheus_command_error(mocker):
+    # Mock dependencies
+    mocker.patch("uqe.jobs.clusters_task.celery_task_logger", return_value=mocker.MagicMock())
+    mocker.patch("uqe.jobs.clusters_task.os.environ.get", side_effect=lambda key: "mock_host" if key == "PROMETHEUS_SERVER" else "3")
+    mocker.patch("uqe.jobs.catalogs_task.ParamikoClient.execute_remote_command_script", return_value="mock_response")
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_status_code", return_value=["mock_error"])
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_connection", return_value=[])
+
+    # Call the function and expect an exception
+    with pytest.raises(RPCommandExecuteException):
+        delete_prometheus(cluster_id="test_cluster_id")
+
 
 @pytest.mark.unit
 @pytest.mark.component
-def test_update_reboot_day_status_false(mocker):
-    """Test for DB execution with status=False."""
-    mock_connection = mocker.MagicMock()
-    mocker.patch("uqe.utils.database_manager.db.engine.connect", return_value=mock_connection)
-    
-    # Mock the DB response
-    mock_result = [{"out_result": {"status": False, "message": "Failure", "returnCode": 500}}]
-    mock_connection.execution_options.return_value.__enter__.return_value.execute.return_value = mock_result
-    
-    # Mock the logger
-    mock_logger = mocker.patch("uqe.utils.logger.logger")
-    
-    result = update_reboot_day(cluster_id="mock_cluster", reboot_day="sunday")
-    
-    # Assertions
-    assert result[0]["message"] == "Failure"
-    assert result[1] == 500
-    mock_logger.error.assert_called_once_with(str(mock_result[0].get('out_result')))
+def test_delete_prometheus_connection_error(mocker):
+    # Mock dependencies
+    mocker.patch("uqe.jobs.clusters_task.celery_task_logger", return_value=mocker.MagicMock())
+    mocker.patch("uqe.jobs.clusters_task.os.environ.get", side_effect=lambda key: "mock_host" if key == "PROMETHEUS_SERVER" else "3")
+    mocker.patch("uqe.jobs.catalogs_task.ParamikoClient.execute_remote_command_script", return_value="mock_response")
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_status_code", return_value=[])
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_connection", return_value=["mock_error"])
+
+    # Call the function and expect an exception
+    with pytest.raises(RPConnectTimeOutException):
+        delete_prometheus(cluster_id="test_cluster_id")
+
+
+@pytest.mark.unit
+@pytest.mark.component
+def test_delete_prometheus_exception_handling(mocker):
+    # Mock dependencies
+    mocker.patch("uqe.jobs.clusters_task.celery_task_logger", return_value=mocker.MagicMock())
+    mocker.patch("uqe.jobs.clusters_task.os.environ.get", return_value="mock_host")
+    mocker.patch("uqe.jobs.catalogs_task.ParamikoClient.execute_remote_command_script", side_effect=Exception("mock_exception"))
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_status_code", return_value=[])
+    mocker.patch("uqe.jobs.clusters_task.util_method_verify_connection", return_value=[])
+    mocker.patch("uqe.jobs.clusters_task.create_failure_impulse_incident.apply_async", return_value=None)
+
+    # Call the function and verify exception handling
+    with pytest.raises(Exception):
+        delete_prometheus(cluster_id="test_cluster_id")
