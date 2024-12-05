@@ -1,69 +1,53 @@
 import pytest
-import os
-from unittest import mock
-from urllib.parse import quote
+from uqe.apis.service.sg_update_reboot_service import update_reboot_day
 
-# Assuming your function is in a module called db_utils
-from your_module import format_db_connection_string
+@pytest.mark.unit
+@pytest.mark.component
+def test_update_reboot_day_invalid_day():
+    """Test for invalid reboot_day parameter."""
+    result = update_reboot_day(cluster_id="mock", reboot_day="invalid_day")
+    assert 'message' in result[0]
+    assert result[0]["message"] == "Invalid parameter passed"
+    assert result[1] == 400
 
-@pytest.fixture
-def mock_env_vars():
-    # Mocking environment variables before each test
-    mock_env = {
-        "POSTGRES_USER": "testuser",
-        "POSTGRES_PWD": "testpassword",
-        "POSTGRES_API_DB": "testdb",
-        "POSTGRES_HOST": "localhost",
-        "POSTGRES_PORT": "5432"
-    }
-    with mock.patch.dict(os.environ, mock_env):
-        yield mock_env
+@pytest.mark.unit
+@pytest.mark.component
+def test_update_reboot_day_status_true(mocker):
+    """Test for successful DB execution with status=True."""
+    mock_connection = mocker.MagicMock()
+    mocker.patch("uqe.utils.database_manager.db.engine.connect", return_value=mock_connection)
+    
+    # Mock the DB response
+    mock_result = [{"out_result": {"status": True, "message": "Success", "returnCode": 200}}]
+    mock_connection.execution_options.return_value.__enter__.return_value.execute.return_value = mock_result
+    
+    # Mock the logger
+    mock_logger = mocker.patch("uqe.utils.logger.logger")
+    
+    result = update_reboot_day(cluster_id="mock_cluster", reboot_day="sunday")
+    
+    # Assertions
+    assert result[0]["message"] == "Success"
+    assert result[1] == 200
+    mock_logger.info.assert_called_once_with(str(mock_result[0].get('out_result')))
 
-@pytest.fixture
-def mock_worker_env_vars():
-    # Mocking environment variables with worker database info
-    mock_env = {
-        "POSTGRES_USER": "testuser",
-        "POSTGRES_PWD": "testpassword",
-        "POSTGRES_API_WORKER_DB": "workerdb",
-        "POSTGRES_HOST": "localhost",
-        "POSTGRES_PORT": "5432"
-    }
-    with mock.patch.dict(os.environ, mock_env):
-        yield mock_env
-
-def test_format_db_connection_string(mock_env_vars):
-    config = {}
-
-    # Case where SQLALCHEMY_DATABASE_URI is not in the environment
-    format_db_connection_string(config)
-
-    expected_uri = "postgresql://testuser:testpassword@localhost:5432/testdb"
-    assert config['SQLALCHEMY_DATABASE_URI'] == expected_uri
-
-def test_format_db_connection_string_worker(mock_worker_env_vars):
-    config = {}
-
-    # Case where worker=True, and using the worker database
-    format_db_connection_string(config, worker=True)
-
-    expected_worker_uri = "postgresql://testuser:testpassword@localhost:5432/workerdb"
-    assert config['SQLALCHEMY_DATABASE_WORKER_URI'] == expected_worker_uri
-
-def test_format_db_connection_string_with_existing_uri(mock_env_vars):
-    config = {}
-
-    # Mock SQLALCHEMY_DATABASE_URI in environment
-    with mock.patch.dict(os.environ, {"SQLALCHEMY_DATABASE_URI": "postgresql://customuri"}):
-        format_db_connection_string(config)
-
-    assert config['SQLALCHEMY_DATABASE_URI'] == "postgresql://customuri"
-
-def test_format_db_connection_string_with_worker_and_existing_uri(mock_worker_env_vars):
-    config = {}
-
-    # Mock SQLALCHEMY_DATABASE_URI in environment
-    with mock.patch.dict(os.environ, {"SQLALCHEMY_DATABASE_URI": "postgresql://customuri"}):
-        format_db_connection_string(config, worker=True)
-
-    assert config['SQLALCHEMY_DATABASE_WORKER_URI'] == "postgresql://customuri"
+@pytest.mark.unit
+@pytest.mark.component
+def test_update_reboot_day_status_false(mocker):
+    """Test for DB execution with status=False."""
+    mock_connection = mocker.MagicMock()
+    mocker.patch("uqe.utils.database_manager.db.engine.connect", return_value=mock_connection)
+    
+    # Mock the DB response
+    mock_result = [{"out_result": {"status": False, "message": "Failure", "returnCode": 500}}]
+    mock_connection.execution_options.return_value.__enter__.return_value.execute.return_value = mock_result
+    
+    # Mock the logger
+    mock_logger = mocker.patch("uqe.utils.logger.logger")
+    
+    result = update_reboot_day(cluster_id="mock_cluster", reboot_day="sunday")
+    
+    # Assertions
+    assert result[0]["message"] == "Failure"
+    assert result[1] == 500
+    mock_logger.error.assert_called_once_with(str(mock_result[0].get('out_result')))
